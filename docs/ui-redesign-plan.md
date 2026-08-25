@@ -1,6 +1,6 @@
 # RadimoAgent UI redesign plan
 
-Status: Phase 1 implemented; workflow/artifact hardening remains
+Status: Minimal UI pass implemented; workflow/artifact hardening remains
 
 ## Product decision
 
@@ -31,6 +31,11 @@ Remove from the primary desktop flow:
 
 Keep the existing capabilities, but put them behind clear sections and explicit actions.
 
+The desktop shell is intentionally reduced to `Fall-Diskussion`, `Modus`, `Kontext`,
+`Quellen`, `Neuer Fall`, the message stream, and the composer. The status rail only
+shows mode, target, phase, and artifacts. Explanatory product copy and duplicated
+navigation are not part of the primary view.
+
 ## Helper structure
 
 The Helper is a narrow vertical panel:
@@ -46,11 +51,11 @@ No moon navigation is needed in this surface. The current state and the next saf
 
 ## Desktop structure
 
-Use a three-column layout:
+Use a focused discussion layout:
 
-- **Navigation**: Fälle, Bericht, Diskussion, Quellen, Aktivität, Einstellungen.
 - **Primary workspace**: open case discussion; selected report artifacts remain separate from the RIS.
-- **Arbeitsradar**: current workflow phase, artifacts, target lock, source status, and recent actions.
+- **Status rail**: current mode, target, phase, and artifacts.
+- **Secondary drawer**: context files, references, templates, guidance, and screen capture.
 
 The default desktop screen should show one task, one primary action, and one clear safety state. Advanced reference/context tools open as secondary panels instead of competing with the report.
 
