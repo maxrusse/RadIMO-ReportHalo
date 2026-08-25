@@ -16,6 +16,6 @@ The current generated v2 schema also defines `turn/start.input` items of type `l
 
 The browser-login response contains an `authUrl`. Completion arrives as the `account/login/completed` notification. The app only forwards safe login status to the renderer; it never requests `includeToken: true`, never exposes access tokens through the preload bridge, and does not expose device-code login.
 
-For work turns, the initial policy is read-only with network disabled. That is a conservative default for the first Windows client and can be made explicit per workspace later after the approval UX is designed.
+Work turns remain read-only. Radiology discussion, differential, and conclusion turns enable read-only network access for source review; language-only correction turns keep network access disabled. The prompt still requires exact citations for sources actually accessed and forbids fabricated references.
 
 The model list is queried at runtime rather than hardcoding an assumed catalog. The live development probe on 2026-08-22 exposed GPT-5.6 Luna, Terra, and Sol, with Luna selected as the initial default.

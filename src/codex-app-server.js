@@ -104,7 +104,7 @@ class CodexAppServer {
       model: model || null,
       effort: effort || null,
       approvalPolicy: "never",
-      sandboxPolicy: { type: "readOnly", networkAccess: Boolean(evidenceMode) },
+      sandboxPolicy: { type: "readOnly", networkAccess: Boolean(evidenceMode || (radiologyMode && assistantMode !== "correction")) },
     });
   }
 

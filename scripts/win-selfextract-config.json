@@ -2,6 +2,7 @@
   "appId": "de.radimo.agent",
   "productName": "RadimoAgent",
   "asar": true,
+  "electronLanguages": ["de", "en-US"],
   "files": [
     "src/**/*",
     "assets/**/*",

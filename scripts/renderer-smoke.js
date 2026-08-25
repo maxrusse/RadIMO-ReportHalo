@@ -29,6 +29,8 @@ app.whenReady().then(async () => {
         workRadar: Boolean(document.querySelector(".work-radar")),
         minimap: Boolean(document.querySelector("#minimap")),
         contextMoon: Boolean(document.querySelector("#contextMoon")),
+        primarySourceControls: document.querySelector(".island")?.innerText.includes("Quellen") || false,
+        clinicSourcesSecondary: Boolean(document.querySelector("#clinicSourceItems")),
         contextDrawerOpen: !document.querySelector("#contextDrawer").classList.contains("hidden"),
         contextAttachedEnabled: !document.querySelector("#useContext").disabled,
         contextCopyEnabled: !document.querySelector("#copyContext").disabled,

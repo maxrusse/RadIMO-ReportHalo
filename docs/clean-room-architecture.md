@@ -8,8 +8,8 @@ RadimoAgent is authored as an independent desktop client. The previous executabl
 - `src/preload.js` exposes a deliberately small IPC surface to the renderer.
 - `src/codex-app-server.js` is the only model-session adapter. It speaks the local JSON-RPC app-server contract and never exposes credentials to the renderer.
 - `src/context-finder.js` is a standalone local-first beta for adjacent report context.
-- `src/renderer/` contains the Radimo interaction model: one central island, orbiting action moons, and an activity minimap.
-- `assets/moonlets-sprite.png` is a newly generated visual asset used by the moon controls.
+- `src/renderer/` contains the Radimo interaction model: one focused discussion workspace and a separate compact Helper window.
+- The primary desktop flow has no orbiting controls; secondary context, clinic sources, templates, and guidance remain behind the context drawer.
 
 ## Source connector decision
 

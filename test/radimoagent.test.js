@@ -22,6 +22,7 @@ const { applyCodexProxy, isOpenAiNoProxyEntry } = require("../src/codex-proxy-en
 const { CodexAppServer } = require("../src/codex-app-server");
 const { fieldEnvironment } = require("../src/windows-field-bridge");
 const { createWorkflowStore } = require("../src/workflow-state");
+const { formatClinicSourcePrompt, clinicSummary, loadClinicSourceLibrary, readClinicSource, saveClinicRoot } = require("../src/clinic-source-library");
 
 test("helper and desktop share a local case with named artifacts", () => {
   let sequence = 0;
@@ -79,6 +80,15 @@ test("radiology work modes keep reasoning separate from language-only correction
   assert.match(correction, /Do not add interpretation/);
   assert.match(summaryField, /WORKFIELD CONTRACT — BEURTEILUNG \/ ZUSAMMENFASSUNG/);
   assert.match(summaryField, /Do not include the full Befund/);
+});
+
+test("radiology reasoning prefers online peer-reviewed sources without adding a main-view toggle", () => {
+  const instructions = buildTurnInstructions({ assistantMode: "differential", radiologyMode: true });
+  assert.match(instructions, /ONLINE RADIOLOGY REVIEW/);
+  assert.match(instructions, /peer-reviewed radiology literature/);
+  assert.match(instructions, /PubMed/);
+  const correction = buildTurnInstructions({ assistantMode: "correction", radiologyMode: true });
+  assert.doesNotMatch(correction, /ONLINE RADIOLOGY REVIEW/);
 });
 
 test("German and Latin report guidance is explicit and conservative", () => {
@@ -147,6 +157,15 @@ test("Codex turns use the supported localImage input shape", async () => {
   assert.match(turn.input[0].text, /WORKFIELD CONTRACT — BEURTEILUNG/);
 });
 
+test("radiology reasoning turns allow read-only online source review", async () => {
+  const client = new CodexAppServer();
+  client.request = async (_method, params) => params;
+  const turn = await client.sendTurn({ threadId: "thread-2", text: "Prüfe die Differenzialdiagnose.", assistantMode: "differential", radiologyMode: true });
+  assert.equal(turn.sandboxPolicy.networkAccess, true);
+  const correction = await client.sendTurn({ threadId: "thread-3", text: "Korrigiere den Text.", assistantMode: "correction", radiologyMode: true });
+  assert.equal(correction.sandboxPolicy.networkAccess, false);
+});
+
 test("local reference pack reads text and keeps PDFs trace-only", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "radimoagent-references-"));
   try {
@@ -161,6 +180,34 @@ test("local reference pack reads text and keeps PDFs trace-only", async () => {
     assert.equal(pack[1].content, "");
     assert.match(formatReferencePack(pack), /radiopaedia-export\.html/);
     assert.doesNotMatch(formatReferencePack(pack), /peer-reviewed-paper\.pdf/);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("clinic PDF folders are reusable and register a source in the clinic AGENTS.md", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "radimoagent-clinics-"));
+  try {
+    const clinicRoot = path.join(directory, "clinics");
+    const clinicDir = path.join(clinicRoot, "Demo-Klinik");
+    const sourceDir = path.join(clinicDir, "sources");
+    await fs.mkdir(sourceDir, { recursive: true });
+    const pdfPath = path.join(sourceDir, "leitlinie.pdf");
+    const secondPdfPath = path.join(sourceDir, "artikel.pdf");
+    await fs.writeFile(pdfPath, "%PDF-1.4 placeholder");
+    await fs.writeFile(secondPdfPath, "%PDF-1.4 second placeholder");
+    await saveClinicRoot(directory, clinicRoot);
+    const library = await loadClinicSourceLibrary({ appRoot: directory, userDataPath: directory, executablePath: path.join(directory, "RadimoAgent.exe"), resourcesPath: path.join(directory, "resources") });
+    assert.equal(clinicSummary(library).clinics[0].sources[0].status, "new");
+    const item = await readClinicSource(library, "demo-klinik", pdfPath);
+    assert.equal(item.referenced, true);
+    assert.equal(item.status, "metadata-only");
+    assert.match(await fs.readFile(item.agentsPath, "utf8"), /leitlinie\.pdf/);
+    assert.equal(formatClinicSourcePrompt(item), "");
+    await readClinicSource(await loadClinicSourceLibrary({ appRoot: directory, userDataPath: directory, executablePath: path.join(directory, "RadimoAgent.exe"), resourcesPath: path.join(directory, "resources") }), "demo-klinik", secondPdfPath);
+    const agents = await fs.readFile(item.agentsPath, "utf8");
+    assert.match(agents, /leitlinie\.pdf/);
+    assert.match(agents, /artikel\.pdf/);
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }

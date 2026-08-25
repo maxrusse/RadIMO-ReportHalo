@@ -12,6 +12,8 @@ const state = {
   assistantMode: "discussion",
   writingProfile: "german-radiology",
   referencePack: [],
+  clinicCatalog: null,
+  selectedClinicId: "",
   screenCapture: null,
   artifacts: [],
   helperFieldType: "befund",
@@ -250,13 +252,135 @@ function referencePrompt() {
   if (!state.referencePack.length || !$("useLocalReferences").checked) return "";
   const readable = state.referencePack.filter((item) => item.status === "ready" && item.content);
   if (!readable.length) return "";
-  const blocks = readable.map((item) => [
+  const blocks = readable.map((item) => item.sourceType === "clinic" && item.prompt ? item.prompt : [
     `### ${item.sourceType === "web" ? "LIVE WEB REFERENCE" : "LOCAL REFERENCE"} · ${item.name}`,
     item.sourceType === "web" ? `Source URL: ${item.url}` : `Source filename: ${item.name}`,
     item.content,
     `### END LOCAL REFERENCE · ${item.name}`,
   ].join("\n"));
   return `\n\n[EXPLICITLY ATTACHED LOCAL RADIOLOGY REFERENCE PACK]\nUse only the readable text below as local reference material. Cite the filename when relying on it. Do not claim to have read a metadata-only PDF or binary file.\n${blocks.join("\n\n")}\n[/EXPLICITLY ATTACHED LOCAL RADIOLOGY REFERENCE PACK]`;
+}
+
+function renderClinicCatalog(catalog) {
+  state.clinicCatalog = catalog || { root: null, clinics: [] };
+  const clinics = state.clinicCatalog.clinics || [];
+  const select = $("clinicSelect");
+  select.replaceChildren();
+  for (const clinic of clinics) {
+    const option = document.createElement("option");
+    option.value = clinic.id;
+    option.textContent = clinic.name;
+    select.append(option);
+  }
+  if (clinics.length) {
+    if (!clinics.some((clinic) => clinic.id === state.selectedClinicId)) state.selectedClinicId = clinics[0].id;
+    select.value = state.selectedClinicId;
+  } else {
+    state.selectedClinicId = "";
+  }
+  $("clinicSourceBadge").textContent = clinics.length ? `${clinics.length} Klinik${clinics.length === 1 ? "" : "en"}` : "Keine";
+  $("clinicRootStatus").textContent = state.clinicCatalog.root ? `Ordner: ${state.clinicCatalog.root}` : "Kein Klinikordner";
+  const list = $("clinicSourceItems");
+  list.replaceChildren();
+  const clinic = clinics.find((item) => item.id === state.selectedClinicId);
+  if (!clinic) {
+    const empty = document.createElement("div");
+    empty.className = "clinic-source-empty";
+    empty.textContent = "Keine Klinik ausgewählt oder noch keine PDFs in sources/.";
+    list.append(empty);
+    return;
+  }
+  if (!clinic.sources.length) {
+    const empty = document.createElement("div");
+    empty.className = "clinic-source-empty";
+    empty.textContent = "Keine PDFs in diesem Klinikordner.";
+    list.append(empty);
+    return;
+  }
+  for (const source of clinic.sources) {
+    const node = document.createElement("article");
+    node.className = "clinic-source-item";
+    node.innerHTML = `<div class="clinic-source-item-head"><strong></strong><span class="reference-badge"></span></div><small></small><div class="clinic-source-item-actions"></div>`;
+    node.querySelector("strong").textContent = source.name;
+    node.querySelector(".reference-badge").textContent = source.status === "referenced" ? "Referenziert" : "Neu";
+    node.querySelector("small").textContent = `${source.relativePath} · ${Math.round(source.size / 1024)} KB`;
+    const actions = node.querySelector(".clinic-source-item-actions");
+    const read = document.createElement("button");
+    read.className = "secondary-button";
+    read.type = "button";
+    read.textContent = source.status === "referenced" ? "Erneut lesen" : "Neu lesen";
+    read.addEventListener("click", () => readClinicSource(source));
+    actions.append(read);
+    const attach = document.createElement("button");
+    attach.className = "secondary-button";
+    attach.type = "button";
+    attach.textContent = "Anhängen";
+    attach.disabled = !state.referencePack.some((item) => item.sourceType === "clinic" && item.path === source.path && item.content);
+    attach.addEventListener("click", () => {
+      const item = state.referencePack.find((entry) => entry.sourceType === "clinic" && entry.path === source.path);
+      if (!item) {
+        showToast("PDF zuerst lesen.");
+        return;
+      }
+      $("useLocalReferences").checked = true;
+      updateEvidenceLedger();
+      addActivity("Klinikquelle angehängt", source.name, false);
+      showToast("Klinikquelle wird an die nächste Anfrage angehängt.");
+    });
+    actions.append(attach);
+    list.append(node);
+  }
+}
+
+async function loadClinicSources() {
+  try {
+    renderClinicCatalog(await window.radimoAgent.getClinicSources());
+  } catch (error) {
+    $("clinicRootStatus").textContent = error.message || "Klinikquellen nicht verfügbar";
+  }
+}
+
+async function chooseClinicRoot() {
+  try {
+    const catalog = await window.radimoAgent.chooseClinicSourceRoot();
+    if (catalog) {
+      renderClinicCatalog(catalog);
+      addActivity("Klinikordner gewählt", "PDFs liegen je Klinik in sources/", false);
+      showToast("Klinikquellen aktualisiert.");
+    }
+  } catch (error) {
+    $("clinicRootStatus").textContent = error.message || "Klinikordner konnte nicht gewählt werden.";
+  }
+}
+
+async function openClinicRoot() {
+  try {
+    await window.radimoAgent.openClinicSourceRoot();
+  } catch (error) {
+    $("clinicRootStatus").textContent = error.message || "Klinikordner konnte nicht geöffnet werden.";
+  }
+}
+
+async function readClinicSource(source) {
+  $("clinicRootStatus").textContent = `${source.name} wird gelesen…`;
+  try {
+    const item = await window.radimoAgent.readClinicSource({ clinicId: state.selectedClinicId, sourcePath: source.path });
+    if (item.status !== "ready" || !item.content) {
+      addActivity("Klinikquelle nicht lesbar", `${source.name} · ${item.reason || "PDF-Text fehlt"}`, true);
+      showToast("PDF konnte nicht als Text gelesen werden.");
+      renderClinicCatalog(item.catalog);
+      return;
+    }
+    state.referencePack = [...state.referencePack.filter((entry) => entry.path !== item.path), { ...item, sourceType: "clinic" }];
+    renderReferences(state.referencePack);
+    $("useLocalReferences").checked = true;
+    renderClinicCatalog(item.catalog);
+    addActivity("Klinikquelle gelesen", `${item.name} in AGENTS.md registriert`, false);
+    showToast("Quelle gelesen und für die nächste Anfrage bereit.");
+  } catch (error) {
+    $("clinicRootStatus").textContent = error.message || "Klinikquelle konnte nicht gelesen werden.";
+    addActivity("Klinikquelle fehlgeschlagen", $("clinicRootStatus").textContent, true);
+  }
 }
 
 function renderReferences(pack) {
@@ -372,6 +496,7 @@ function extractEvidenceSources(text) {
 }
 
 function updateEvidenceLedger(responseText = "") {
+  const ledger = $("evidenceLedger");
   const localAttached = $("useLocalReferences").checked && state.referencePack.some((item) => item.status === "ready" && item.content);
   const liveRequested = $("evidenceMode").checked;
   const sources = [];
@@ -381,11 +506,13 @@ function updateEvidenceLedger(responseText = "") {
   for (const source of extractEvidenceSources(responseText)) sources.push(source);
   const uniqueSources = [...new Set(sources)];
   if (liveRequested && !uniqueSources.length) {
+    ledger.classList.remove("hidden");
     $("evidenceState").textContent = "Keine Quelle";
     $("evidenceSources").textContent = "Prüfung nötig";
     return;
   }
   if (uniqueSources.length) {
+    ledger.classList.remove("hidden");
     $("evidenceState").textContent = `${uniqueSources.length} Quelle${uniqueSources.length === 1 ? "" : "n"}`;
     $("evidenceSources").replaceChildren();
     for (const source of uniqueSources) {
@@ -398,6 +525,7 @@ function updateEvidenceLedger(responseText = "") {
   }
   $("evidenceState").textContent = "Keine";
   $("evidenceSources").textContent = "";
+  ledger.classList.add("hidden");
 }
 
 function setAssistantMode(mode) {
@@ -522,7 +650,7 @@ async function startNewDiscussion() {
     state.messages = [];
     state.lastAgentText = "";
     $("messages").replaceChildren();
-    $("messages").innerHTML = `<div class="empty-state"><span class="empty-icon">R</span><div><strong>Keine Diskussion geöffnet</strong><p>Für Befundarbeit den Helfer neben dem RIS verwenden. Hier kannst du einen schwierigen Fall weiter besprechen.</p></div></div>`;
+    $("messages").innerHTML = `<div class="empty-state"><strong>Fallfrage eingeben</strong></div>`;
     updateEvidenceLedger();
     setAssistantMode("discussion");
     setIslandState("Bereit");
@@ -744,6 +872,7 @@ function helperFieldLabel() {
 function setHelperFieldType(value) {
   state.helperFieldType = HELPER_FIELD_LABELS[value] ? value : "befund";
   $("helperFieldType").value = state.helperFieldType;
+  $("helperTitle").textContent = helperFieldLabel();
   $("helperArtifactType").textContent = state.helperFieldType === "beurteilung" ? "Zusammenfassung" : HELPER_FIELD_LABELS[state.helperFieldType];
   if ($("helperCreateBeurteilung")) {
     const isFinding = state.helperFieldType === "befund";
@@ -974,7 +1103,7 @@ async function helperOpenDesktop() {
   }
   helperSetStatus("Frische Desktop-Falldiskussion wird geöffnet…", "Desktop wird geöffnet");
   await window.radimoAgent.openMainWithDraft({
-    text: `Diskutiere dieses Arbeitsfeld (${helperFieldLabel()}) auf medizinische und logische Unstimmigkeiten. Besprich fehlende Informationen, Differenzialdiagnosen und Unsicherheiten. Verwende peer-reviewte oder autoritative radiologische Quellen nur, wenn „Live-Quellen“ ausdrücklich aktiviert ist.\n\n${result}`,
+    text: `Diskutiere dieses Arbeitsfeld (${helperFieldLabel()}) auf medizinische und logische Unstimmigkeiten. Besprich fehlende Informationen, Differenzialdiagnosen und Unsicherheiten. Bevorzuge bei medizinischer Begründung peer-reviewte oder autoritative radiologische Quellen, sofern der Onlinezugriff verfügbar ist; nenne nur tatsächlich verwendete Quellen.\n\n${result}`,
     mode: "discussion",
     fresh: true,
     fieldType: state.helperFieldType,
@@ -1072,6 +1201,9 @@ $("refreshButton").addEventListener("click", refreshConnection);
 $("contextMoon").addEventListener("click", openContext);
 $("closeContext").addEventListener("click", closeContext);
 $("chooseContext").addEventListener("click", chooseContext);
+$("chooseClinicRoot").addEventListener("click", chooseClinicRoot);
+$("openClinicRoot").addEventListener("click", openClinicRoot);
+$("clinicSelect").addEventListener("change", (event) => { state.selectedClinicId = event.target.value; renderClinicCatalog(state.clinicCatalog); });
 $("chooseReferences").addEventListener("click", chooseReferences);
 $("clearReferences").addEventListener("click", clearReferences);
 $("fetchReferenceUrl").addEventListener("click", fetchReferenceUrl);
@@ -1150,7 +1282,7 @@ window.radimoAgent.onEvent((event) => {
   if (event.method === "turn/completed") { setIslandState("Bereit"); addActivity("Bereit", "Die Antwort ist vollständig", false); updateEvidenceLedger(state.lastAgentText); const ownsTurn = state.workflow?.origin === (helperMode ? "helper" : "desktop"); if (ownsTurn && state.lastAgentText.trim()) void publishArtifact(helperMode ? "Helfergebnis" : "Antwortentwurf", helperMode ? "Prüfen · kopieren oder ins RIS schreiben" : "Arbeitskopie · nicht automatisch ins RIS geschrieben", helperMode ? "helper-result" : "discussion"); if ($("useScreenCapture").checked) { $("useScreenCapture").checked = false; $("useScreenCapture").disabled = true; $("screenCaptureStatus").textContent = "Bild gesendet; für ein weiteres Bild erneut erfassen."; } if (helperMode) helperSetStatus("Ergebnis bereit. Prüfen und gezielt verwenden.", "Bereit"); refreshConnection(); }
   if (event.method === "radimoagent/stderr") addActivity("Lokales Signal", event.params?.text || "", false);
 });
-window.radimoAgent.onReady(() => { addActivity("Arbeitsbereich bereit", "Lokaler App-Server verbunden", false); refreshConnection(); loadModels(); });
+window.radimoAgent.onReady(() => { addActivity("Arbeitsbereich bereit", "Lokaler App-Server verbunden", false); refreshConnection(); loadModels(); loadClinicSources(); });
 window.radimoAgent.onError((error) => { setStatus(false, "Nicht verfügbar", error.message || "Startfehler"); addActivity("Startproblem", error.message || "Startfehler", true); });
 window.radimoAgent.onWorkflowState((workflow) => applyWorkflowState(workflow));
 window.radimoAgent.getWorkflowState().then((workflow) => applyWorkflowState(workflow)).catch(() => {});
@@ -1160,7 +1292,7 @@ window.radimoAgent.onWorkflow(async (payload) => {
     state.messages = [];
     state.lastAgentText = "";
     $("messages").replaceChildren();
-    $("messages").innerHTML = `<div class="empty-state"><span class="empty-icon">R</span><div><strong>Fall aus dem Helfer</strong><p>Arbeitsgrundlage übernommen. Stelle jetzt deine Fallfrage.</p></div></div>`;
+    $("messages").innerHTML = `<div class="empty-state"><strong>Fallfrage eingeben</strong></div>`;
   }
   setAssistantMode(payload.mode || "discussion");
   if (payload.fieldType) {

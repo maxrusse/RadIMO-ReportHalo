@@ -32,7 +32,8 @@ Remove from the primary desktop flow:
 Keep the existing capabilities, but put them behind clear sections and explicit actions.
 
 The desktop shell is intentionally reduced to `Fall-Diskussion`, `Modus`, `Kontext`,
-`Quellen`, `Neuer Fall`, the message stream, and the composer. The status rail only
+`Neuer Fall`, the message stream, and the composer. Clinic sources, templates, and guidance only
+appear in the secondary context drawer. The status rail only
 shows mode, target, phase, and artifacts. Explanatory product copy and duplicated
 navigation are not part of the primary view.
 
@@ -54,7 +55,7 @@ No moon navigation is needed in this surface. The current state and the next saf
 Use a focused discussion layout:
 
 - **Primary workspace**: open case discussion; selected report artifacts remain separate from the RIS.
-- **Status rail**: current mode, target, phase, and artifacts.
+- **Transient status**: mode, target, phase, and artifacts appear only when they carry information; no empty status rail is shown on the default screen.
 - **Secondary drawer**: context files, references, templates, guidance, and screen capture.
 
 The default desktop screen should show one task, one primary action, and one clear safety state. Advanced reference/context tools open as secondary panels instead of competing with the report.
@@ -93,7 +94,7 @@ The Arbeitskern can use a restrained pulse/orbit animation during an active phas
 
 ### Phase 1 — visual foundation — implemented
 
-- Replace moon layout with the Helper panel and three-column Desktop shell.
+- Replace moon layout with the Helper panel and focused single-column Desktop shell.
 - Establish German-first typography, spacing, state colors, buttons, tabs, and panels.
 - Keep existing IPC and model behavior behind the new layout.
 - Use short German-first labels and remove moon controls from both surfaces.

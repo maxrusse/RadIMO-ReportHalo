@@ -13,6 +13,13 @@ const EVIDENCE_MODE_PROMPT = [
   "If external access is unavailable, do not pretend to have read a page: state that limitation and ask the user to provide the relevant text or PDF.",
 ].join(" ");
 
+const ONLINE_RADIOLOGY_PROMPT = [
+  "ONLINE RADIOLOGY REVIEW: When network access is available and the request involves medical reasoning, a differential diagnosis, or a Beurteilung, prefer checking current authoritative material before answering.",
+  "Prefer peer-reviewed radiology literature indexed in PubMed or PMC, the journal or DOI landing page, professional guidelines, and Radiopaedia for reference-level explanations.",
+  "Use exact URLs or DOIs for sources actually accessed, distinguish source-supported claims from your synthesis, and never fabricate a citation or imply that a page was read when it was not.",
+  "If no external source was accessed, state that limitation briefly and keep the answer as a guarded discussion draft for radiologist review.",
+].join(" ");
+
 const RADIOLOGY_KNOWLEDGE_PROMPT = [
   "RADIOLOGY KNOWLEDGE MODE: Act as a structured radiology discussion partner for a reporting radiologist, not as the final diagnostician.",
   "Start from the supplied clinical question, modality, anatomy, findings, and report context. Do not infer an unseen image, history, laboratory result, or prior study.",
@@ -59,6 +66,7 @@ function buildTurnInstructions({ medicalGate = true, evidenceMode = false, radio
     buildFieldPrompt(fieldType, fieldLabel),
     modePrompt,
     writingGuidance || "",
+    radiologyMode && assistantMode !== "correction" ? ONLINE_RADIOLOGY_PROMPT : "",
     evidenceMode ? EVIDENCE_MODE_PROMPT : "",
   ]
     .filter(Boolean)
@@ -68,6 +76,7 @@ function buildTurnInstructions({ medicalGate = true, evidenceMode = false, radio
 module.exports = {
   MEDICAL_GATE_PROMPT,
   EVIDENCE_MODE_PROMPT,
+  ONLINE_RADIOLOGY_PROMPT,
   RADIOLOGY_KNOWLEDGE_PROMPT,
   IMAGE_REVIEW_PROMPT,
   MODE_PROMPTS,

@@ -11,18 +11,17 @@ RadimoAgent is a clean-room Radimo desktop workspace for authenticated ChatGPT/C
 - Local renderer and shell, so the usability design can evolve with the client release.
 - No legacy provider UI or provider-specific branding in this new project.
 - Context attachment is explicit: the user must enable `Include context` after selecting a local report neighborhood.
-- The Context moon captures the selected text field and can copy it, prepare a guarded correction request, or save a reviewed AI result as a new draft without overwriting the source.
+- The Context action opens a secondary drawer for nearby reports, selected fields, guarded correction, and reviewed draft saving without overwriting the source.
 - The account dialog has `Copy diagnostics`; the local log is written to Electron's per-user logs directory and the copied bundle redacts token-like values.
-- Medical gate is enabled by default. Evidence mode is a separate explicit opt-in and asks the model to cite exact URLs or DOIs, never claiming to have read a source that was not actually available.
-- Full view has explicit radiology work modes: Open discussion, Lektorat (language-only), Differential diagnosis, and Beurteilung/conclusion. Radiology knowledge mode is visible and separate from live evidence/reference access.
+- Medical gate is enabled by default. Radiology reasoning turns automatically prefer online peer-reviewed and authoritative sources when network access is available; language-only correction stays offline and source-free.
+- Full view has explicit radiology work modes: Open discussion, Lektorat (language-only), Differential diagnosis, and Beurteilung/conclusion. Source management is kept out of the primary composer.
 - The selected `German / Latin Befund` writing profile adds a transparent, conservative language layer for report text. Its rules are shipped as editable Markdown in `guidance/german-radiology-profile.md`; reviewed department terminology, phrase patterns, and de-identified examples can accumulate there or in a user-local Markdown override through the profile import/export controls.
 - The template library uses editable `*.md` files. It checks `guidance/templates/` beside the portable executable first, then local user-data templates, keeps the future local webserver source disabled, and finally falls back to generic built-in templates.
 - Open discussion is a multi-turn case conversation with a clean “New discussion” action; it never writes back to another application automatically.
-- The local radiology library can attach readable exported HTML/text/Markdown or extracted paper text to a turn without a Radimo server. PDFs are extracted locally only when a trusted `pdftotext` executable is available; otherwise they remain trace-only.
-- The full view includes an evidence ledger that shows attached local filenames, extracted URLs/DOIs, or explicitly reports that no source was returned. Fetched medical pages can also be opened in the user's normal browser when an institutional browser proxy is required.
+- Clinic sources are secondary and reusable: put PDFs under `guidance/clinics/<clinic>/sources/`. `Neu lesen` extracts a PDF locally, keeps a SHA-256 text cache, and registers it in that clinic's `AGENTS.md`; `Anhängen` is required before the PDF enters the next turn.
 - The context drawer includes a local screen-region capture utility. It previews and copies the image, and now offers an explicit `Attach image to next turn` option using the current app-server `localImage` input shape. The image is sent only after that checkbox is selected and is deleted from the temporary folder after the turn completes.
 - Image attachment is capability-aware: the checkbox is disabled when the selected model catalog entry does not advertise the `image` input modality.
-- Full mode is a conventional desktop workspace. Helper mode is a separate always-on-top, transparent orb with edge moons, a bottom-center menu button, clipboard/UI Automation capture, a local Dictation Box, explicit field locking/transfer, dictation, and reviewed copy/write-back actions.
+- Full mode is a conventional desktop workspace. Helper mode is a separate always-on-top compact panel with clipboard/UI Automation capture, a local Dictation Box, explicit field locking/transfer, dictation, and reviewed copy/write-back actions.
 - German is the primary product language for the German-market workflow. The Helper supports `Diktieren → Bericht strukturieren → optionale Beurteilung → Desktop-Diskussion`; the desktop can then start a fresh case stream for medical/logical review, differential discussion, and explicitly enabled source-backed work.
 
 ## Development
@@ -61,11 +60,11 @@ Windows UI Automation and dictation remain explicit optional helper actions. The
 
 ## Current status
 
-This is the first source baseline, not a finished signed installer. The app-server adapter, browser-login UI, live model picker, floating-island shell, context-finder beta, activity minimap, packaging configuration, and renderer/main-process security boundaries are in place. Windows smoke testing, signing, accessibility review, and any optional Windows automation module remain release work.
+This is the first source baseline, not a finished signed installer. The app-server adapter, browser-login UI, live model picker, minimal discussion shell, context-finder beta, clinic source register, packaging configuration, and renderer/main-process security boundaries are in place. Windows smoke testing, signing, accessibility review, and any optional Windows automation module remain release work.
 
 ## Context finder beta
 
-The Context moon opens a local-first beta. Select a report file from an exported or mounted data folder; the beta collects two sibling files above it and one below it in natural filename order. It labels likely `Fragestellung`, `Anforderung`, `Befund`, and `Beurteilung` files from their names, shows short previews for text formats, and can copy or save a Markdown capture report. PDF and other binary files remain references until a dedicated parser is added.
+The Context action opens a local-first beta. Select a report file from an exported or mounted data folder; the beta collects two sibling files above it and one below it in natural filename order. It labels likely `Fragestellung`, `Anforderung`, `Befund`, and `Beurteilung` files from their names, shows short previews for text formats, and can copy or save a Markdown capture report.
 
 ## Logs and correction workflow
 
@@ -81,9 +80,9 @@ The app distinguishes four tasks. `Lektorat` is constrained to spelling, grammar
 
 The German/Latin writing profile is deliberately not a hidden medical knowledge base. It preserves the supplied facts, measurements, negations, uncertainty, laterality, anatomy, and temporal qualifiers; it separates `Befund` from `Beurteilung`; and it asks the model to flag ambiguity rather than resolve it silently. Department additions are stored as editable Markdown under the app user-data folder, can be imported/exported from the context drawer, and should contain only reviewed, de-identified style material.
 
-`Use references` is an explicit opt-in. When the connected agent can access sources, it should prefer Radiopaedia, PubMed-indexed peer-reviewed literature, journal/DOI pages, and professional guidelines, and show exact URLs or DOIs. Without source access, the app must say so rather than implying that a page was read. This is a decision-support and drafting aid for a reporting radiologist; the radiologist remains responsible for the final report and clinical decision.
+For medical reasoning, the internal prompt prefers Radiopaedia, PubMed/PMC-indexed peer-reviewed literature, journal/DOI pages, and professional guidelines. It must show exact URLs or DOIs for sources actually accessed and say when none were accessed. This is a decision-support and drafting aid for a reporting radiologist; the radiologist remains responsible for the final report and clinical decision.
 
-The `Local radiology library` is a separate explicit attachment path. It reads only user-selected text-like files (HTML, TXT, Markdown, JSON, CSV, XML) and, when an approved local `pdftotext` executable exists, extracts PDF text locally with a timeout and size cap. It includes only readable text in the next turn; unsupported or unextractable binaries remain visible as trace-only entries.
+The `guidance/clinics/` library is a secondary local path, not part of the main frontend. Each clinic owns `sources/*.pdf` and an editable `AGENTS.md`. The app never invents a citation from a filename: it extracts only locally readable text, caches it by hash, and sends it only after explicit attachment.
 
 When live evidence is requested, the prompt requires a `SOURCES USED` section. The renderer displays returned URLs/DOIs as unverified source entries; it does not imply that a citation is correct merely because a URL appeared in model output.
 
@@ -93,7 +92,7 @@ At startup, RadimoAgent asks Electron for the Windows system proxy rules for `au
 
 ## Helper mode and cross-application fields
 
-The `Helper` button opens a separate always-on-top window. Full mode remains a conventional desktop workspace; helper mode is the small Clippy-style orb only. Its edge moons can be clicked or dragged, and the bottom-center square opens the helper card. In Windows, `Grab` keeps the orb non-focusable while it reads the currently focused editable control through a clean-room PowerShell/UI Automation bridge, so the source application can remain the active foreground application. If that is unavailable, it falls back to the clipboard: select text in the other application, press `Ctrl+C`, then press `Grab`. `Lock field` anchors the current field target and keeps speech in the local Dictation Box; `Transfer to field` is explicit and retains the box until `Discard box`. Before transfer, the bridge restores the target window and checks the captured process/control identity; if the target changed, it stops and asks for a new lock. The captured target window is also retained for an explicit `Write AI result` action after the user reviews Luna's result. The helper never writes without an explicit button press.
+The `Helper` button opens a separate always-on-top window. In Windows, `Grab` keeps the helper non-focusable while it reads the currently focused editable control through a clean-room PowerShell/UI Automation bridge, so the source application can remain the active foreground application. If that is unavailable, it falls back to the clipboard: select text in the other application, press `Ctrl+C`, then press `Grab`. `Lock field` anchors the current field target and keeps speech in the local Dictation Box; `Transfer to field` is explicit and retains the box until `Discard box`. Before transfer, the bridge restores the target window and checks the captured process/control identity; if the target changed, it stops and asks for a new lock. The captured target window is also retained for an explicit `Write AI result` action after the user reviews Luna's result. The helper never writes without an explicit button press.
 
 The old portable executable was inspected only as a behavioral reference. Its packaged payload confirms that the legacy app used a UI Automation sidecar and native Windows bindings, but its implementation is not reused in this source tree.
 

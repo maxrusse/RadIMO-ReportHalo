@@ -1,12 +1,12 @@
 {
   "name": "radimoagent-desktop",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "private": true,
   "description": "Neutral RadimoAgent desktop client for authenticated Codex and ChatGPT work",
   "main": "src/main.js",
   "engines": { "node": ">=20.11.0" },
   "scripts": {
-    "check": "node --check src/main.js && node --check src/preload.js && node --check src/platform.js && node --check src/codex-app-server.js && node --check src/context-finder.js && node --check src/reference-library.js && node --check src/logger.js && node --check src/medical-gate.js && node --check src/report-writing-guidance.js && node --check src/template-library.js && node --check src/windows-field-bridge.js && node --check src/windows-proxy.js && node --check src/codex-proxy-env.js && node --check src/renderer/app.js && node --check scripts/package-win-zip.js && node scripts/check-ui-contract.js",
+    "check": "node --check src/main.js && node --check src/preload.js && node --check src/platform.js && node --check src/codex-app-server.js && node --check src/context-finder.js && node --check src/reference-library.js && node --check src/clinic-source-library.js && node --check src/logger.js && node --check src/medical-gate.js && node --check src/report-writing-guidance.js && node --check src/template-library.js && node --check src/windows-field-bridge.js && node --check src/windows-proxy.js && node --check src/codex-proxy-env.js && node --check src/renderer/app.js && node --check scripts/package-win-zip.js && node scripts/check-ui-contract.js",
     "test": "node test/radimoagent.test.js",
     "start": "electron .",
     "smoke:renderer": "xvfb-run -a electron --no-sandbox --disable-gpu scripts/renderer-smoke.js",
@@ -25,6 +25,7 @@
     "appId": "de.radimo.agent",
     "productName": "RadimoAgent",
     "asar": true,
+    "electronLanguages": ["de", "en-US"],
     "files": [
       "src/**/*",
       "assets/**/*",

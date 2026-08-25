@@ -11,6 +11,7 @@ const { readFocusedField, writeFocusedField } = require("./windows-field-bridge"
 const { proxyEndpointFromInternetSettings, readWindowsInternetSettings } = require("./windows-proxy");
 const { applyCodexProxy } = require("./codex-proxy-env");
 const { readReferencePack, readReferenceUrl } = require("./reference-library");
+const { clinicSummary, formatClinicSourcePrompt, loadClinicSourceLibrary, readClinicSource, saveClinicRoot } = require("./clinic-source-library");
 const {
   formatGuidancePrompt,
   loadGuidanceProfile,
@@ -35,6 +36,7 @@ let pendingSnip = null;
 let snipCompleting = false;
 let guidanceLoaded = null;
 let templateLibraryLoaded = null;
+let clinicSourceLibraryLoaded = null;
 const pendingCapturePaths = new Set();
 const workflowStore = createWorkflowStore();
 
@@ -51,6 +53,11 @@ async function ensureGuidanceProfile() {
 async function ensureTemplateLibrary() {
   if (!templateLibraryLoaded) templateLibraryLoaded = loadTemplateLibrary({ executablePath: process.execPath, resourcesPath: process.resourcesPath, appRoot: path.join(__dirname, ".."), userDataPath: app.getPath("userData"), webServerEnabled: false });
   return templateLibraryLoaded;
+}
+
+async function ensureClinicSourceLibrary({ reload = false } = {}) {
+  if (!clinicSourceLibraryLoaded || reload) clinicSourceLibraryLoaded = loadClinicSourceLibrary({ appRoot: path.join(__dirname, ".."), executablePath: process.execPath, resourcesPath: process.resourcesPath, userDataPath: app.getPath("userData") });
+  return clinicSourceLibraryLoaded;
 }
 
 async function applyGuidance(options = {}) {
@@ -526,6 +533,36 @@ ipcMain.handle("guidance:open-folder", async () => {
   await fs.mkdir(folder, { recursive: true });
   await shell.openPath(folder);
   return folder;
+});
+ipcMain.handle("clinic:status", async () => clinicSummary(await ensureClinicSourceLibrary({ reload: true })));
+ipcMain.handle("clinic:choose-root", async () => {
+  const result = await dialog.showOpenDialog(windowRef, {
+    title: "Klinikquellen-Ordner wählen",
+    properties: ["openDirectory", "createDirectory"],
+  });
+  if (result.canceled || !result.filePaths[0]) return null;
+  const root = await saveClinicRoot(app.getPath("userData"), result.filePaths[0]);
+  clinicSourceLibraryLoaded = loadClinicSourceLibrary({ appRoot: path.join(__dirname, ".."), executablePath: process.execPath, resourcesPath: process.resourcesPath, userDataPath: app.getPath("userData") });
+  log("INFO", "Clinic source root selected", { root });
+  return clinicSummary(await clinicSourceLibraryLoaded);
+});
+ipcMain.handle("clinic:open-root", async () => {
+  const library = await ensureClinicSourceLibrary();
+  await fs.mkdir(library.root, { recursive: true });
+  await shell.openPath(library.root);
+  return library.root;
+});
+ipcMain.handle("clinic:read-source", async (_event, payload) => {
+  const library = await ensureClinicSourceLibrary({ reload: true });
+  const source = await readClinicSource(library, payload?.clinicId, payload?.sourcePath);
+  log("INFO", "Clinic PDF read and registered", {
+    clinicId: source.clinicId,
+    source: source.relativePath,
+    status: source.status,
+    sha256: source.sha256,
+    agentsPath: source.agentsPath,
+  });
+  return { ...source, prompt: formatClinicSourcePrompt(source), catalog: clinicSummary(await ensureClinicSourceLibrary({ reload: true })) };
 });
 ipcMain.handle("clipboard:read", () => clipboard.readText());
 ipcMain.handle("clipboard:write", (_event, text) => {
