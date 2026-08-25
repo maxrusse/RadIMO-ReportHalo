@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RadimoAgent</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand"><div class="brand-mark">R</div><strong>RadimoAgent</strong></div>
+        <div class="topbar-actions">
+          <span class="connection-pill"><i id="statusDot"></i><span id="statusText">Prüfen…</span></span>
+          <button class="topbar-button" id="helperToggle">Helfer</button>
+          <button class="avatar" id="accountButton" aria-label="Konto">A</button>
+        </div>
+      </header>
+
+      <main class="workspace-grid">
+        <section class="island" aria-label="Fall-Diskussion">
+          <div class="workspace-heading">
+            <div><span class="eyebrow">FALL</span><h1>Fall-Diskussion</h1></div>
+            <span class="state-chip" id="islandState">Bereit</span>
+          </div>
+
+          <div class="case-toolbar">
+            <label class="mode-select-label">Modus<select id="assistantMode" aria-label="Modus"><option value="discussion">Diskussion</option><option value="report">Strukturieren</option><option value="correction">Lektorat</option><option value="differential">Differenzialdiagnose</option><option value="conclusion">Beurteilung</option></select></label><span id="modeDescription" class="hidden" aria-hidden="true"></span>
+            <button class="tool-button" id="contextMoon">Kontext</button>
+            <button class="tool-button" id="exploreMoon">Quellen</button>
+            <button class="secondary-button" id="newDiscussion">Neuer Fall</button>
+          </div>
+
+          <div class="messages" id="messages" aria-live="polite"><div class="empty-state"><span class="empty-icon">R</span><strong>Kein Fall</strong></div></div>
+          <section class="evidence-ledger" id="evidenceLedger" aria-label="Quellen"><div class="evidence-ledger-head"><span class="eyebrow">QUELLEN</span><span class="evidence-state" id="evidenceState">Keine</span></div><div class="evidence-sources" id="evidenceSources"></div></section>
+
+          <div class="composer">
+            <textarea id="composer" rows="1" placeholder="Fallfrage oder Befund…"></textarea>
+            <div class="composer-actions">
+              <label class="context-toggle"><input type="checkbox" id="useContext" disabled /> Kontext</label>
+              <label class="context-toggle"><input type="checkbox" id="useLocalReferences" disabled /> Quellen</label>
+              <label class="context-toggle advanced-toggle"><input type="checkbox" id="radiologyMode" checked /> Radiologie</label>
+              <label class="context-toggle advanced-toggle"><input type="checkbox" id="medicalGate" checked /> Prüfen</label>
+              <label class="context-toggle advanced-toggle"><input type="checkbox" id="evidenceMode" /> Live</label>
+              <select id="modelSelect" aria-label="Modell"></select>
+              <button class="send-button" id="sendButton">Senden <span>↗</span></button>
+            </div>
+          </div>
+        </section>
+
+        <aside class="minimap work-radar" id="minimap" aria-label="Fallstatus">
+          <div class="radar-head"><span class="eyebrow">FALLSTATUS</span><button class="icon-button" id="activityMoon" title="Fallstatus">×</button></div>
+          <div class="radar-summary"><div><span>MODUS</span><strong id="radarMode">Diskussion</strong></div><div><span>ZIEL</span><strong id="radarTarget">Kein Feld</strong></div><div><span>STATUS</span><strong id="radarPhase">Bereit</strong></div></div>
+          <div class="radar-section"><div class="section-label">ENTWÜRFE</div><div class="artifact-list" id="artifactList"><div class="artifact-empty">Keine</div></div></div>
+          <div class="activity-list hidden" id="activityList"></div>
+          <div class="radar-foot"><span id="accountText">Lokaler Agent</span><button id="refreshButton" title="Verbindung prüfen">↻</button></div>
+        </aside>
+
+        <!-- Compatibility controls stay outside the primary layout. Advanced views use them. -->
+        <nav class="side-nav hidden" aria-hidden="true"><button id="focusMoon"></button><button id="chatMoon"></button><button id="automateMoon"></button><button id="writingProfile"></button><button id="navTarget"></button></nav>
+      </main>
+
+      <section class="context-drawer hidden" id="contextDrawer" aria-label="Kontext und Quellen">
+        <div class="drawer-head"><div><span class="eyebrow">KONTEXT</span><h2>Kontext und Quellen</h2></div><button class="drawer-close" id="closeContext">×</button></div>
+        <div class="drawer-actions"><button class="primary-button" id="chooseContext">Befunddatei wählen</button><button class="secondary-button" id="copyContext" disabled>Bericht kopieren</button><button class="secondary-button" id="copySelectedField" disabled>Feld kopieren</button><button class="secondary-button" id="prepareCorrection" disabled>Lektorat</button><button class="secondary-button" id="saveContext" disabled>Bericht speichern</button><span id="contextStatus">Keine Quelle</span></div>
+        <div class="context-source" id="contextSource"></div>
+        <div class="resource-grid">
+          <div class="reference-panel"><div class="reference-head"><div><span class="eyebrow">QUELLEN</span><h3>Medizinische Quellen</h3></div><span class="reference-badge" id="referenceBadge">Keine</span></div><div class="reference-actions"><button class="secondary-button" id="chooseReferences">Dateien wählen</button><button class="secondary-button" id="clearReferences" disabled>Leeren</button><span id="referenceStatus">Keine Quellen</span></div><div class="reference-url-row"><input id="referenceUrl" type="url" placeholder="Radiopaedia- oder PubMed-URL" autocomplete="off" /><button class="secondary-button" id="fetchReferenceUrl">Laden</button></div><small class="reference-warning">Freigegebene medizinische Domains</small><div class="reference-items" id="referenceItems"></div></div>
+          <div class="guidance-panel"><div class="reference-head"><div><span class="eyebrow">PROFIL</span><h3>Deutsch / Latein</h3></div><span class="reference-badge" id="guidanceBadge">—</span></div><div class="reference-actions"><button class="secondary-button" id="importGuidance">Import</button><button class="secondary-button" id="exportGuidance">Export</button><button class="secondary-button" id="openGuidanceFolder">Ordner</button><span id="guidanceStatus"></span></div><div class="template-row"><label class="mode-select-label">Vorlage<select id="templateSelect" aria-label="Befundvorlage"></select></label><button class="secondary-button" id="insertTemplate">Einsetzen</button><span id="templateStatus"></span></div></div>
+        </div>
+        <div class="screen-capture-panel"><div class="reference-head"><div><span class="eyebrow">BILD</span><h3>Bildschirmbereich</h3></div><span class="reference-badge" id="screenCaptureBadge">Keine</span></div><div class="reference-actions"><button class="secondary-button" id="captureScreen">Erfassen</button><button class="secondary-button" id="copyScreenCapture" disabled>Kopieren</button><label class="context-toggle"><input type="checkbox" id="useScreenCapture" disabled /> An Anfrage anhängen</label><span id="screenCaptureStatus"></span></div><img class="screen-capture-preview hidden" id="screenCapturePreview" alt="Bildschirmbereich" /></div>
+        <label class="field-label" for="selectedField">RIS-Feld</label><textarea class="selected-field" id="selectedField" rows="5" readonly placeholder="Kein Feld"></textarea><div class="correction-actions"><button class="secondary-button" id="copyLastResponse" disabled>Antwort kopieren</button><button class="secondary-button" id="saveCorrectionDraft" disabled>Entwurf speichern</button><span id="correctionStatus"></span></div><div class="context-items" id="contextItems"></div>
+      </section>
+    </div>
+
+    <section class="helper-panel" id="helperPanel" aria-label="Radimo Helfer">
+      <div class="helper-window"><header class="helper-top"><div class="helper-brand"><div class="brand-mark">R</div><strong>Radimo Helfer</strong></div><div class="helper-top-actions"><span class="helper-state-dot"></span><span id="helperCoreStatus">Bereit</span><button class="helper-close" id="helperClose" title="Schließen">×</button></div></header>
+        <div class="helper-view-switch" role="group" aria-label="Ansicht"><button id="helperVerticalMode" class="active">Arbeitsansicht</button><button id="helperMiniMode">Mini</button></div>
+        <div class="helper-core-row"><div class="helper-core-mark">R</div><div><span class="eyebrow">RIS</span><h1 id="helperTitle">Feld</h1><p id="helperStatus"></p></div><span class="state-chip" id="helperState">Bereit</span></div>
+        <div class="helper-card" id="helperCard">
+          <div class="helper-target"><span class="target-icon">⌖</span><div><span class="section-label">ZIEL</span><strong id="helperLockStatus">Kein Feld</strong></div><label class="helper-field-select">Feld<select id="helperFieldType" aria-label="RIS-Feld"><option value="befund">Befund</option><option value="beurteilung">Beurteilung</option><option value="fragestellung">Fragestellung</option><option value="anforderung">Anforderung</option><option value="sonstiges">Sonstiger Text</option></select></label><button class="secondary-button" id="helperLockField">Sperren</button><button class="secondary-button" id="helperReleaseField" disabled>Freigeben</button></div>
+          <div class="helper-actions primary-helper-actions"><button class="primary-button" id="helperCaptureMoon">Erfassen</button><button class="secondary-button" id="helperDictateMoon">Diktieren</button><button class="secondary-button" id="helperFixMoon">Lektorat</button><button class="secondary-button" id="helperContextMoon">Kontext</button></div>
+          <div class="helper-editor-grid"><div><label class="helper-box-label" for="helperInput">EINGANG</label><textarea id="helperInput" rows="7" placeholder="RIS-Text…"></textarea></div><div><div class="artifact-heading"><label class="helper-box-label" for="helperResult">ERGEBNIS</label><span id="helperArtifactType">Entwurf</span></div><textarea id="helperResult" rows="7" readonly placeholder="—"></textarea></div></div>
+          <label class="context-toggle helper-conclusion-toggle"><input type="checkbox" id="helperCreateBeurteilung" checked /> Beurteilung erzeugen</label>
+          <div class="helper-actions"><button class="primary-button" id="helperSend">Fragen</button><button class="secondary-button" id="helperStructure">Strukturieren</button><button class="secondary-button" id="helperTransfer" disabled>Ins Feld</button><button class="secondary-button" id="helperWriteBack" disabled>Ins RIS</button><button class="secondary-button" id="helperCopyResult" disabled>Kopieren</button><button class="secondary-button" id="helperDiscard">Leeren</button></div>
+          <div class="helper-footer-actions"><button class="link-button" id="helperOpenMain">Diskussion</button><button class="link-button" id="helperMenu">Eingang</button><button class="link-button" id="helperActivityMoon">Status</button><button class="link-button" id="helperCopyMoon">Kopieren</button></div>
+        </div>
+      </div>
+    </section>
+
+    <div class="modal-backdrop hidden" id="loginModal"><div class="modal"><button class="modal-close" id="closeLogin">×</button><div class="modal-kicker">KONTO</div><h2>ChatGPT-Konto</h2><div class="modal-actions"><button class="primary-button" id="loginButton">Browser-Anmeldung</button><button class="secondary-button" id="logoutButton">Abmelden</button><button class="secondary-button" id="testConnection">Verbindung testen</button><button class="secondary-button" id="copyDiagnostics">Diagnose kopieren</button></div><div class="proxy-override"><label class="field-label" for="proxyOverride">Proxy</label><div class="proxy-row"><input id="proxyOverride" type="text" autocomplete="off" placeholder="http://proxy:port" /><button class="secondary-button" id="applyProxy">Anwenden</button></div><div class="proxy-credentials"><input id="proxyUsername" type="text" autocomplete="username" placeholder="Benutzername" /><input id="proxyPassword" type="password" autocomplete="current-password" placeholder="Passwort" /></div><small>HTTP 407: Proxy-Anmeldung erforderlich</small></div><p class="log-path" id="logPath"></p><p class="modal-status" id="loginStatus"></p></div></div>
+    <div class="toast hidden" id="toast"></div>
+    <script src="./app.js"></script>
+  </body>
+</html>

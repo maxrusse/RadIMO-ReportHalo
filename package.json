@@ -1,0 +1,51 @@
+{
+  "name": "radimoagent-desktop",
+  "version": "0.1.7",
+  "private": true,
+  "description": "Neutral RadimoAgent desktop client for authenticated Codex and ChatGPT work",
+  "main": "src/main.js",
+  "engines": { "node": ">=20.11.0" },
+  "scripts": {
+    "check": "node --check src/main.js && node --check src/preload.js && node --check src/platform.js && node --check src/codex-app-server.js && node --check src/context-finder.js && node --check src/reference-library.js && node --check src/logger.js && node --check src/medical-gate.js && node --check src/report-writing-guidance.js && node --check src/template-library.js && node --check src/windows-field-bridge.js && node --check src/windows-proxy.js && node --check src/codex-proxy-env.js && node --check src/renderer/app.js && node --check scripts/package-win-zip.js && node scripts/check-ui-contract.js",
+    "test": "node test/radimoagent.test.js",
+    "start": "electron .",
+    "smoke:renderer": "xvfb-run -a electron --no-sandbox --disable-gpu scripts/renderer-smoke.js",
+    "smoke:helper": "xvfb-run -a electron --no-sandbox --disable-gpu scripts/helper-smoke.js",
+    "smoke:app": "xvfb-run -a electron --no-sandbox --disable-gpu scripts/main-smoke.js",
+    "preflight:win": "node scripts/check-windows-payload.js",
+    "dist:zip": "node scripts/package-win-zip.js",
+    "dist:win": "npm run preflight:win && electron-builder --win portable && npm run dist:zip"
+  },
+  "devDependencies": {
+    "electron": "40.10.2",
+    "electron-builder": "25.1.8"
+  },
+  "build": {
+    "appId": "de.radimo.agent",
+    "productName": "RadimoAgent",
+    "asar": true,
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "package.json",
+      "README.md",
+      "README-DE.md",
+      "docs/**/*",
+      "guidance/**/*",
+      "AGENTS.md"
+    ],
+    "extraResources": [
+      {
+        "from": "vendor/codex/win-x64",
+        "to": "codex",
+        "filter": ["codex.exe"]
+      }
+    ],
+    "win": {
+      "target": [{ "target": "portable", "arch": ["x64"] }],
+      "icon": "assets/radimoagent.ico",
+      "signAndEditExecutable": false,
+      "artifactName": "RadimoAgent-${version}-win-${arch}.${ext}"
+    }
+  }
+}
