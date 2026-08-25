@@ -1,6 +1,6 @@
 {
   "name": "radimoagent-desktop",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "private": true,
   "description": "Neutral RadimoAgent desktop client for authenticated Codex and ChatGPT work",
   "main": "src/main.js",
@@ -33,13 +33,6 @@
       "docs/**/*",
       "guidance/**/*",
       "AGENTS.md"
-    ],
-    "extraResources": [
-      {
-        "from": "vendor/codex/win-x64",
-        "to": "codex",
-        "filter": ["codex.exe"]
-      }
     ],
     "win": {
       "target": [{ "target": "portable", "arch": ["x64"] }],

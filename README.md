@@ -37,7 +37,7 @@ npm run smoke:app
 
 The checked-in lockfile uses Electron `40.10.2` and electron-builder `25.1.8`, which run on the Node 20 development host. The production BrowserWindow remains sandboxed; the smoke scripts use an isolated test-only launch mode because this managed Linux host cannot start Chromium’s setuid sandbox.
 
-On Linux, the Codex binary defaults to `/software/codex/bin/codex`. Override it for local testing with `RADIMOAGENT_CODEX_BIN`. On Windows, the release layout expects `resources/codex/codex.exe`; the same environment variable can point to a developer-installed binary.
+On Linux, the Codex binary defaults to `/software/codex/bin/codex`. Override it for local testing with `RADIMOAGENT_CODEX_BIN`. On Windows, the slim release keeps `codex/codex.exe` beside the launcher; portable builds use `PORTABLE_EXECUTABLE_DIR`. The same environment variable can point to a developer-installed binary.
 
 The client starts:
 
@@ -53,9 +53,8 @@ The configured portable release contains the Radimo-generated icon and:
 
 ```text
 RadimoAgent.exe
-resources/
-  app.asar
-  codex/codex.exe
+codex/
+  codex.exe
 ```
 
 Windows UI Automation and dictation remain explicit optional helper actions. They are isolated behind the main-process field bridge and are not coupled to the model provider or renderer.
@@ -106,4 +105,4 @@ The release configuration targets a portable x64 Windows build. Before packaging
 vendor/codex/win-x64/codex.exe
 ```
 
-Then run `npm run dist:win`. The build places it in `resources/codex/codex.exe`, which is the path resolved by the Windows client. Electron and electron-builder are declared in `package.json`; dependency installation is intentionally left to the release environment.
+Then run `npm run dist:win`. The build keeps `codex.exe` outside the launcher so the individual EXE stays small; the ZIP contains both files. Electron and electron-builder are declared in `package.json`; dependency installation is intentionally left to the release environment.

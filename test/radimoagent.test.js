@@ -187,7 +187,8 @@ test("approved medical URL references are fetched into a traceable local text it
   assert.match(item.content, /Periappendiceal inflammatory change/);
 });
 
-test("Windows packaging resolves the bundled Codex path", () => {
+test("Windows packaging resolves the Codex path beside a slim portable EXE", () => {
+  assert.equal(resolveCodexBinary({ platform: "win32", env: { PORTABLE_EXECUTABLE_DIR: "C:\\RadimoAgent" }, resourcesPath: "C:\\RadimoAgent\\resources" }), "C:\\RadimoAgent\\codex\\codex.exe");
   assert.equal(resolveCodexBinary({ platform: "win32", env: {}, resourcesPath: "C:\\RadimoAgent\\resources" }), "C:\\RadimoAgent\\resources\\codex\\codex.exe");
 });
 
