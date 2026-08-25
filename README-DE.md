@@ -12,3 +12,5 @@ Die Anwendung ist in dieser Entwicklungsfassung nicht signiert. Windows SmartScr
 Die lokale Webserver-Quelle für Vorlagen ist vorbereitet, aber derzeit deaktiviert. Ohne externe Vorlagen verwendet RadimoAgent die eingebauten generischen Vorlagen.
 
 Die KI-Ausgaben bleiben Entwürfe. Befund und Beurteilung müssen vor jeder Übertragung in das Zielprogramm durch die Radiologin oder den Radiologen geprüft werden.
+
+Für eine einzelne selbstentpackende Datei `npm run dist:selfextract` verwenden. Diese Variante ist größer, enthält den Codex aber intern und benötigt keine nebenstehende `codex/`-Datei.

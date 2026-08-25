@@ -106,3 +106,5 @@ vendor/codex/win-x64/codex.exe
 ```
 
 Then run `npm run dist:win`. The build keeps `codex.exe` outside the launcher so the individual EXE stays small; the ZIP contains both files. Electron and electron-builder are declared in `package.json`; dependency installation is intentionally left to the release environment.
+
+Use `npm run dist:selfextract` for one self-extracting Windows executable. It is larger because it embeds Codex, but it needs no neighboring `codex/` directory.

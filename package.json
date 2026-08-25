@@ -14,7 +14,8 @@
     "smoke:app": "xvfb-run -a electron --no-sandbox --disable-gpu scripts/main-smoke.js",
     "preflight:win": "node scripts/check-windows-payload.js",
     "dist:zip": "node scripts/package-win-zip.js",
-    "dist:win": "npm run preflight:win && electron-builder --win portable && npm run dist:zip"
+    "dist:win": "npm run preflight:win && electron-builder --win portable && npm run dist:zip",
+    "dist:selfextract": "npm run preflight:win && electron-builder --win portable --config scripts/win-selfextract-config.json"
   },
   "devDependencies": {
     "electron": "40.10.2",
