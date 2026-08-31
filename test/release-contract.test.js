@@ -11,10 +11,14 @@ const { normalizeEndpoint } = require("../src/agent-api-config");
 const { estimateCostEur, UsageBudget } = require("../src/usage-budget");
 
 test("release metadata is pinned and excludes the Codex payload from the app build", () => {
+  assert.equal(packageJson.name, "radimo-reporthalo-desktop");
+  assert.equal(packageJson.homepage, "https://maxrusse.github.io/RadIMO-ReportHalo/");
+  assert.equal(packageJson.repository.url, "https://github.com/maxrusse/RadIMO-ReportHalo.git");
   assert.equal(packageJson.devDependencies.electron, "44.1.0");
   assert.equal(packageJson.devDependencies["electron-builder"], "26.15.3");
   assert.equal(packageJson.build.extraResources, undefined);
   assert.ok(packageJson.build.files.includes("codex-runtime.json"));
+  assert.ok(packageJson.build.files.includes("EULA.txt"));
   assert.match(runtimeManifest.sha256, /^[0-9a-f]{64}$/);
   assert.match(runtimeManifest.installerSha256, /^[0-9a-f]{64}$/);
   assert.ok(runtimeManifest.downloadUrl.startsWith("https://"));
@@ -76,4 +80,21 @@ test("usage budget exposes unknown pricing without blocking token accounting", a
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
+});
+
+test("GitHub Pages product page is self-contained and brand-aligned", async () => {
+  const page = await fs.readFile(path.join(__dirname, "..", "docs", "index.html"), "utf8");
+  assert.match(page, /RadIMO – ReportHalo/);
+  assert.match(page, /ReportHalo Floating Orb/);
+  assert.doesNotMatch(page, /<script\b/i);
+  for (const relativePath of ["docs/.nojekyll", "docs/assets/site.css", "docs/assets/reporthalo-mark.svg", "docs/assets/reporthalo-orb-preview.svg", "docs/assets/reporthalo-orb-real.png", "docs/assets/reporthalo-workspace-preview.svg"]) {
+    await fs.access(path.join(__dirname, "..", relativePath));
+  }
+});
+
+test("GitHub Pages deployment uses the docs site without a build-time dependency", async () => {
+  const workflow = await fs.readFile(path.join(__dirname, "..", ".github", "workflows", "pages.yml"), "utf8");
+  assert.match(workflow, /actions\/upload-pages-artifact@v3/);
+  assert.match(workflow, /path:\s+\.\/docs/);
+  assert.match(workflow, /actions\/deploy-pages@v4/);
 });

@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="RadIMO – ReportHalo: ein kompakter Windows-Begleiter für radiologische Textarbeit, der neben dem aktiven Befundfeld arbeitet.">
+    <meta name="theme-color" content="#081b29">
+    <title>RadIMO – ReportHalo</title>
+    <link rel="stylesheet" href="./assets/site.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#content">Zum Inhalt springen</a>
+    <header class="hero" id="top">
+      <nav class="nav shell" aria-label="Hauptnavigation">
+        <a class="brand" href="#top">
+          <img src="./assets/reporthalo-mark.svg" alt="" width="36" height="36">
+          <span>RadIMO <i>ReportHalo</i></span>
+        </a>
+        <div class="nav-links">
+          <a href="#product">Produkt</a>
+          <a href="#workflow">Ablauf</a>
+          <a href="#safety">Sicherheit</a>
+          <a href="https://github.com/maxrusse/RadIMO-ReportHalo">GitHub</a>
+        </div>
+      </nav>
+
+      <section class="hero-grid shell">
+        <div class="hero-copy">
+          <p class="eyebrow">RadIMO · Windows companion</p>
+          <h1>Ein kleiner Orb zwischen Befund und Entscheidung.</h1>
+          <p class="lead">ReportHalo bleibt neben dem aktiven RIS-, Word- oder Editor-Feld. Der Fremdeditor bleibt die Quelle; Kontext, Lektorat und Beurteilung werden dort bewusst weitergeführt.</p>
+          <div class="actions">
+            <a class="button primary" href="#product">Oberfläche ansehen <span aria-hidden="true">↓</span></a>
+            <a class="button ghost" href="https://github.com/maxrusse/RadIMO-ReportHalo">Zum Repository <span aria-hidden="true">↗</span></a>
+          </div>
+          <div class="hero-facts" aria-label="Produktmerkmale">
+            <span><b>3×3</b> Mini-Orb</span>
+            <span><b>2</b> Laufzeitwege</span>
+            <span><b>0</b> PHI auf dieser Seite</span>
+          </div>
+        </div>
+
+        <div class="hero-visual" aria-label="Vorschau des ReportHalo Floating Orb">
+          <div class="visual-topline"><span>UI PREVIEW</span><span>FIELD-FIRST · READY</span></div>
+          <div class="preview-frame hero-frame">
+            <img src="./assets/reporthalo-orb-preview.svg" alt="Vorschau des Floating Orb mit 3×3-Aktionsmatrix neben einem Befundeditor" width="1200" height="720">
+          </div>
+          <div class="signal-card"><span class="signal-dot"></span><span>Aktives Feld erkannt</span><strong>bereit</strong></div>
+        </div>
+      </section>
+    </header>
+
+    <main id="content">
+      <section class="notice shell" aria-label="Medizinischer Hinweis">
+        <div class="notice-icon" aria-hidden="true">!</div>
+        <div>
+          <strong>Technisches Werkzeug, keine medizinische Entscheidung.</strong>
+          <p>ReportHalo ist nicht als Medizinprodukt zertifiziert. Ergebnisse sind Entwürfe und müssen vor jeder Übernahme anhand der Originaldaten fachlich geprüft werden. Die Demo-Seite enthält keine Patientendaten.</p>
+        </div>
+      </section>
+
+      <section class="section shell intro" id="product">
+        <p class="eyebrow">Produktidee</p>
+        <h2>Weniger Oberfläche. Mehr Kontrolle über den Text.</h2>
+        <p class="section-lead">ReportHalo ist bewusst kein zweites großes Dokumentfenster. Der Minihelfer bündelt die häufigsten Schritte in einem ruhigen 3×3-Kern und öffnet weitere Flächen nur dann, wenn sie gebraucht werden.</p>
+        <div class="principles">
+          <article><span class="number">01</span><h3>Das Feld bleibt führend</h3><p>Ein explizit aktiviertes Fremdfeld bleibt die maßgebliche Arbeitsfläche. Ohne Ziel wird nichts automatisch geschrieben.</p></article>
+          <article><span class="number">02</span><h3>Der Text bleibt sichtbar</h3><p>Text und Chat werden als verbundener Arbeitsbereich geöffnet. Vorschläge bleiben editierbar und getrennt von Hinweisen.</p></article>
+          <article><span class="number">03</span><h3>Übernahme bleibt bewusst</h3><p>Identität und Ausgangstext werden vor dem Schreiben erneut geprüft. Beurteilungen werden ergänzt, nicht ersetzt.</p></article>
+        </div>
+      </section>
+
+      <section class="section shell feature feature-orb" aria-labelledby="orb-title">
+        <figure class="preview-card">
+          <div class="preview-label"><span>01</span><span>THE ORB</span></div>
+          <img class="real-orb-shot" src="./assets/reporthalo-orb-real.png" alt="Echter anonymisierter ReportHalo Minihelfer mit 3×3-Aktionsmatrix" width="543" height="535" loading="lazy">
+          <figcaption>Vorschau: Target, Diktat, Korrektur, Beurteilung und Ergebnis liegen in einer festen Mini-Anordnung.</figcaption>
+        </figure>
+        <div class="feature-copy">
+          <p class="eyebrow">Die Arbeitsfläche</p>
+          <h2 id="orb-title">Ein Signal-Kern statt einer zweiten App.</h2>
+          <p>Der Orb zieht am mittleren Kern mit, bleibt am Rand transparent und zeigt im geschlossenen Zustand fast keinen Text. Rechtsklick öffnet das lokale Schnellmenü für Einstellungen, Prompts, Sichtbarkeit und Beenden.</p>
+          <ul class="check-list">
+            <li><span>+</span> aktives Feld lesen und sicher verankern</li>
+            <li><span>+</span> bestehende Formulierungen konservativ verbessern</li>
+            <li><span>+</span> Beurteilung unterhalb des vorhandenen Texts ergänzen</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section shell feature feature-workspace" aria-labelledby="workspace-title">
+        <div class="feature-copy">
+          <p class="eyebrow">Text &amp; Chat</p>
+          <h2 id="workspace-title">Diskutieren, ohne den Befund aus den Augen zu verlieren.</h2>
+          <p>Der gemeinsame Arbeitsbereich dockt als verbundener Block an den Orb. Links bleibt der Text editierbar, rechts läuft die ausführliche Diskussion. Erfasster Feldtext ist automatisch Kontext; ein Kopierschritt ist nicht nötig.</p>
+          <div class="mode-row"><span class="mode-chip active">TEXT</span><span class="mode-chip">CHAT</span><span class="mode-chip">KONTEXT</span></div>
+          <p class="fine-print">Chat ist die einzige ausführliche Oberfläche. Kurze Änderungs- und Prüfhinweise bleiben vom übertragbaren Text getrennt.</p>
+        </div>
+        <figure class="preview-card workspace-card">
+          <div class="preview-label"><span>02</span><span>THE WORKSPACE</span></div>
+          <img src="./assets/reporthalo-workspace-preview.svg" alt="Vorschau des verbundenen Text-und-Chat-Arbeitsbereichs" width="1200" height="720" loading="lazy">
+          <figcaption>Vorschau: manuell bearbeitbare Textquelle links, Diskussion und Hinweise rechts.</figcaption>
+        </figure>
+      </section>
+
+      <section class="section shell workflow-section" id="workflow" aria-labelledby="workflow-title">
+        <div class="section-heading">
+          <p class="eyebrow">Der Ablauf</p>
+          <h2 id="workflow-title">Drei kleine Entscheidungen.</h2>
+          <p class="section-lead">Der Workflow hält die Verantwortung dort, wo sie hingehört: beim Menschen und im Originalfeld.</p>
+        </div>
+        <ol class="workflow">
+          <li><span class="workflow-number">01</span><div><h3>Arbeitsfeld wählen</h3><p>Cursor im editierbaren Fremdfeld setzen und den Target-Kern aktivieren. Fenster-, Control- und Textidentität werden gespeichert.</p></div></li>
+          <li><span class="workflow-number">02</span><div><h3>Bestehenden Text prüfen</h3><p>Lektorat, Struktur/Complete und Beurteilung arbeiten mit dem vorhandenen Text. Medizinische oder logische Auffälligkeiten werden als Hinweis gezeigt, nicht still verändert.</p></div></li>
+          <li><span class="workflow-number">03</span><div><h3>Bewusst übernehmen</h3><p>Direktes Schreiben ist eine explizite Aktion. Alternativ öffnet der Vorschlag zuerst im Editor, damit er manuell angepasst und anschließend geprüft werden kann.</p></div></li>
+        </ol>
+      </section>
+
+      <section class="section shell release-section" aria-labelledby="release-title">
+        <div class="section-heading">
+          <p class="eyebrow">Zwei Laufzeitwege</p>
+          <h2 id="release-title">Abo-Komfort oder direkte API.</h2>
+          <p class="section-lead">Beide Varianten nutzen dieselbe Mini-Oberfläche und dieselben medizinischen Schutzregeln.</p>
+        </div>
+        <div class="release-grid">
+          <article class="release-card primary-card">
+            <div class="release-mark">C</div>
+            <p class="card-kicker">Codex subscription path</p>
+            <h3>Mit vorhandenem Codex-Login</h3>
+            <p>Der Desktop-Client verwendet eine offizielle lokale Codex-Installation. Fehlt sie, kann der festgelegte Installer nachinstalliert werden; der Codex-Payload wird nicht in ReportHalo eingebettet.</p>
+            <code>RadIMO-ReportHalo.exe</code>
+          </article>
+          <article class="release-card">
+            <div class="release-mark api-mark">A</div>
+            <p class="card-kicker">Direct Responses API</p>
+            <h3>OpenAI oder Azure OpenAI</h3>
+            <p>Die API-Variante bleibt ohne Codex-Adapter und unterstützt OpenAI sowie Azure OpenAI mit verschlüsselten Zugangsdaten, Streaming und lokalen Budgetgrenzen.</p>
+            <code>RadIMO-ReportHalo API.exe</code>
+          </article>
+        </div>
+      </section>
+
+      <section class="section shell safety-section" id="safety" aria-labelledby="safety-title">
+        <div class="safety-copy">
+          <p class="eyebrow">Grenzen und Nachvollziehbarkeit</p>
+          <h2 id="safety-title">Assistenz darf sichtbar bleiben.</h2>
+          <p>Der Originaltext bleibt unterscheidbar vom Vorschlag. Zahlen, Einheiten, Seitenangaben, Negationen, Unsicherheit, zeitliche Angaben und Empfehlungshinweise werden vor der Übernahme geschützt. Bei einem veränderten Zielfeld wird der Schreibvorgang abgebrochen.</p>
+          <a class="text-link" href="https://github.com/maxrusse/RadIMO-ReportHalo/blob/master/README-DE.md">Technische Dokumentation lesen <span aria-hidden="true">↗</span></a>
+        </div>
+        <aside class="safety-panel">
+          <div class="safety-panel-top"><span class="status-pulse"></span><span>REPORTHALO BOUNDARY</span></div>
+          <p>Entwurf</p>
+          <strong>nicht automatisch<br>medizinische Wahrheit</strong>
+          <div class="safety-lines"><span></span><span></span><span></span></div>
+        </aside>
+      </section>
+
+      <section class="section shell english" lang="en" aria-labelledby="english-title">
+        <p class="eyebrow">English summary</p>
+        <h2 id="english-title">A small field-first companion for radiology text work.</h2>
+        <p>RadIMO – ReportHalo is a Windows Floating Orb that stays beside the active RIS, Word, or editor field. It keeps the foreign editor authoritative, brings text and chat together when needed, and requires an explicit, identity-checked transfer. The repository contains a Codex subscription build, a direct OpenAI/Azure API build, the installer helper, and the release contract.</p>
+        <div class="actions">
+          <a class="button primary" href="https://github.com/maxrusse/RadIMO-ReportHalo">Open the repository <span aria-hidden="true">↗</span></a>
+          <a class="button dark-ghost" href="https://github.com/maxrusse/RadIMO-ReportHalo/blob/master/EULA.txt">Read the EULA <span aria-hidden="true">↗</span></a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="shell footer-grid">
+        <div class="footer-brand"><img src="./assets/reporthalo-mark.svg" alt="" width="32" height="32"><span>RadIMO <i>ReportHalo</i></span></div>
+        <p>Clean-room Windows companion for transparent medical report quality review.</p>
+        <div class="footer-links"><a href="https://github.com/maxrusse/RadIMO-ReportHalo">GitHub</a><a href="https://github.com/maxrusse/RadIMO-ReportHalo/blob/master/EULA.txt">EULA</a><a href="#top">Nach oben ↑</a></div>
+      </div>
+    </footer>
+  </body>
+</html>

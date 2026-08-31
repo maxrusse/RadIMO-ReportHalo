@@ -43,6 +43,7 @@ async function main() {
   await fs.copyFile(path.join(root, "scripts", "install-codex.ps1"), path.join(stagingPath, "Install-Codex.ps1"));
   await fs.copyFile(path.join(root, "codex-runtime.json"), path.join(stagingPath, "codex-runtime.json"));
   await fs.copyFile(path.join(root, "THIRD-PARTY-NOTICES.md"), path.join(stagingPath, "THIRD-PARTY-NOTICES.md"));
+  await fs.copyFile(path.join(root, "EULA.txt"), path.join(stagingPath, "EULA.txt"));
   await fs.mkdir(path.join(stagingPath, "LICENSES"), { recursive: true });
   await fs.copyFile(path.join(root, "LICENSES", "Apache-2.0.txt"), path.join(stagingPath, "LICENSES", "Apache-2.0.txt"));
   await fs.cp(path.join(root, "guidance"), path.join(stagingPath, "guidance"), { recursive: true });
@@ -52,6 +53,7 @@ async function main() {
     "Install-Codex.ps1",
     "codex-runtime.json",
     "THIRD-PARTY-NOTICES.md",
+    "EULA.txt",
     "LICENSES/Apache-2.0.txt",
   ];
   const digests = [];

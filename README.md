@@ -2,6 +2,8 @@
 
 RadIMO – ReportHalo is a clean-room Windows companion for authenticated ChatGPT/Codex work. It has its own visual language, interaction model, and source tree.
 
+The [product page](docs/index.html) is a static, GitHub-Pages-ready overview with UI previews and no external tracking. The application is distributed under the proprietary, revocable [EULA](EULA.txt), following the licensing model used by RadIMO Cortex; `LICENSES/Apache-2.0.txt` applies only to the external Codex notice.
+
 ## Product direction
 
 - Windows desktop client first; Linux is the development and protocol-test host.

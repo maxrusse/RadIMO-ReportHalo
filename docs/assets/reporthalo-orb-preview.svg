@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720" role="img" aria-labelledby="title desc">
+  <title id="title">ReportHalo Floating Orb preview</title>
+  <desc id="desc">A compact translucent orb with a 3 by 3 action matrix beside a report editor.</desc>
+  <defs>
+    <linearGradient id="scene" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#081924"/>
+      <stop offset=".55" stop-color="#0b3140"/>
+      <stop offset="1" stop-color="#173a4c"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#fbffff"/>
+      <stop offset="1" stop-color="#e8f3f3"/>
+    </linearGradient>
+    <radialGradient id="orb" cx="30%" cy="25%" r="75%">
+      <stop stop-color="#d9fff6"/>
+      <stop offset=".4" stop-color="#69d9ce"/>
+      <stop offset="1" stop-color="#16868c"/>
+    </radialGradient>
+    <linearGradient id="halo" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#baffef"/>
+      <stop offset=".55" stop-color="#6bc7da"/>
+      <stop offset="1" stop-color="#736fe1"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="20" stdDeviation="18" flood-color="#001018" flood-opacity=".38"/></filter>
+    <filter id="blur"><feGaussianBlur stdDeviation="28"/></filter>
+  </defs>
+  <rect width="1200" height="720" rx="30" fill="url(#scene)"/>
+  <circle cx="1050" cy="95" r="150" fill="#59cfc5" opacity=".12" filter="url(#blur)"/>
+  <circle cx="170" cy="650" r="190" fill="#657be2" opacity=".11" filter="url(#blur)"/>
+  <rect x="74" y="78" width="1035" height="560" rx="18" fill="url(#paper)" opacity=".94"/>
+  <rect x="74" y="78" width="1035" height="54" rx="18" fill="#d9e8e9"/>
+  <circle cx="102" cy="105" r="7" fill="#ee8b87"/><circle cx="125" cy="105" r="7" fill="#eccb70"/><circle cx="148" cy="105" r="7" fill="#70c9a1"/>
+  <rect x="195" y="97" width="520" height="16" rx="8" fill="#bad0d2"/>
+  <rect x="108" y="169" width="610" height="20" rx="10" fill="#8aa8ad" opacity=".55"/>
+  <rect x="108" y="211" width="860" height="12" rx="6" fill="#aac0c3" opacity=".58"/>
+  <rect x="108" y="241" width="790" height="12" rx="6" fill="#aac0c3" opacity=".45"/>
+  <rect x="108" y="271" width="900" height="12" rx="6" fill="#aac0c3" opacity=".45"/>
+  <rect x="108" y="329" width="530" height="16" rx="8" fill="#4c8589" opacity=".62"/>
+  <rect x="108" y="369" width="875" height="12" rx="6" fill="#aac0c3" opacity=".48"/>
+  <rect x="108" y="399" width="820" height="12" rx="6" fill="#aac0c3" opacity=".42"/>
+  <rect x="108" y="429" width="720" height="12" rx="6" fill="#aac0c3" opacity=".42"/>
+  <rect x="108" y="503" width="310" height="16" rx="8" fill="#4c8589" opacity=".62"/>
+  <rect x="108" y="543" width="610" height="12" rx="6" fill="#aac0c3" opacity=".43"/>
+
+  <g filter="url(#shadow)">
+    <rect x="784" y="164" width="292" height="348" rx="28" fill="#0c1f2b" fill-opacity=".95" stroke="#3e7180" stroke-width="2"/>
+    <rect x="802" y="181" width="256" height="35" rx="12" fill="#143344"/>
+    <circle cx="822" cy="198" r="8" fill="#7de2d1"/><text x="840" y="203" fill="#d5f8f0" font-family="Segoe UI,Arial,sans-serif" font-size="13" font-weight="700">REPORT HALO</text>
+    <g fill="#16384a" stroke="#386b78" stroke-width="1.2">
+      <rect x="802" y="236" width="72" height="60" rx="14"/><rect x="886" y="236" width="72" height="60" rx="14"/><rect x="970" y="236" width="72" height="60" rx="14"/>
+      <rect x="802" y="306" width="72" height="60" rx="14"/><rect x="886" y="306" width="72" height="60" rx="14" fill="#183f4d"/><rect x="970" y="306" width="72" height="60" rx="14"/>
+      <rect x="802" y="376" width="72" height="60" rx="14"/><rect x="886" y="376" width="72" height="60" rx="14"/><rect x="970" y="376" width="72" height="60" rx="14"/>
+    </g>
+    <g fill="none" stroke="#a5e9df" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.3">
+      <path d="M825 276v-24m-12 12h24"/><path d="M909 276v-27h21l9 9v18m-28-17h18"/><path d="M993 275l12-25 12 25m-19-7h14"/>
+      <path d="M821 346h34m-17-17v34"/><circle cx="922" cy="336" r="11"/><path d="M916 336h12m-6-6v12"/><path d="M989 340c12-12 26-1 19 10-7 11-24 10-24-3"/>
+      <path d="M820 406h37m-37 12h25"/><path d="M907 405l24 24m0-24-24 24"/><path d="M989 425l25-25m-25 0 25 25"/>
+    </g>
+    <circle cx="922" cy="336" r="21" fill="none" stroke="url(#halo)" stroke-width="3" opacity=".8"/>
+    <rect x="802" y="454" width="112" height="38" rx="13" fill="#153747"/><rect x="926" y="454" width="116" height="38" rx="13" fill="#153747"/>
+    <text x="858" y="478" text-anchor="middle" fill="#9de6dc" font-family="Segoe UI,Arial,sans-serif" font-size="12" font-weight="700">TEXT</text>
+    <text x="984" y="478" text-anchor="middle" fill="#9de6dc" font-family="Segoe UI,Arial,sans-serif" font-size="12" font-weight="700">CHAT</text>
+  </g>
+  <g opacity=".9"><rect x="802" y="535" width="256" height="27" rx="13" fill="#0a1720"/><text x="930" y="553" text-anchor="middle" fill="#9fbcc0" font-family="Segoe UI,Arial,sans-serif" font-size="11">active field · ready</text></g>
+</svg>

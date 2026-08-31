@@ -16,6 +16,7 @@ const expectedZipFiles = new Set([
   "Install-Codex.ps1",
   "codex-runtime.json",
   "THIRD-PARTY-NOTICES.md",
+  "EULA.txt",
   "LICENSES/Apache-2.0.txt",
 ]);
 
@@ -85,6 +86,7 @@ function verifyUnpackedPayloads() {
     "dist-api/win-unpacked/resources/app.asar",
     "dist-installer/win-unpacked/resources/app.asar",
     "dist-installer/win-unpacked/Install-Codex.ps1",
+    "dist-installer/win-unpacked/EULA.txt",
   ]) requireFile(path.join(root, relativePath), 1_000);
   requireFile(path.join(root, "dist-installer/win-unpacked/codex-runtime.json"), 100);
   for (const relativePath of [

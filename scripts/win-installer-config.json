@@ -11,13 +11,15 @@
     "codex-runtime.json",
     "README.md",
     "README-DE.md",
+    "EULA.txt",
     "guidance/**/*",
     "THIRD-PARTY-NOTICES.md",
     "LICENSES/**/*"
   ],
   "extraFiles": [
     { "from": "scripts/install-codex.ps1", "to": "Install-Codex.ps1" },
-    { "from": "codex-runtime.json", "to": "codex-runtime.json" }
+    { "from": "codex-runtime.json", "to": "codex-runtime.json" },
+    { "from": "EULA.txt", "to": "EULA.txt" }
   ],
   "win": {
     "target": [{ "target": "nsis", "arch": ["x64"] }],

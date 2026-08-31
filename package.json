@@ -1,8 +1,13 @@
 {
-  "name": "radimoagent-desktop",
+  "name": "radimo-reporthalo-desktop",
   "version": "0.2.11",
   "private": true,
   "description": "RadIMO - ReportHalo desktop client for transparent medical report quality review",
+  "homepage": "https://maxrusse.github.io/RadIMO-ReportHalo/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/maxrusse/RadIMO-ReportHalo.git"
+  },
   "radimoBackend": "codex",
   "main": "src/main.js",
   "engines": {
@@ -41,6 +46,7 @@
       "codex-runtime.json",
       "README.md",
       "README-DE.md",
+      "EULA.txt",
       "guidance/**/*",
       "THIRD-PARTY-NOTICES.md",
       "LICENSES/**/*"

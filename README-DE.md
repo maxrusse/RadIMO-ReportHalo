@@ -1,5 +1,7 @@
 # RadIMO – ReportHalo für Windows
 
+Die [Produktseite](docs/index.html) ist eine statische, GitHub-Pages-taugliche Übersicht mit UI-Vorschauen und ohne externes Tracking. Die Anwendung steht unter der proprietären, widerruflichen [EULA](EULA.txt) nach dem Lizenzmodell von RadIMO Cortex; `LICENSES/Apache-2.0.txt` gehört ausschließlich zum Drittanbieterhinweis für Codex.
+
 Die rechte Maustaste öffnet auf dem mittleren Kern und jeder Funktion ein lokales Schnellmenü. Dort kann die Funktion direkt ausgeführt, bei AI-Aktionen der kurze Zusatzprompt geändert oder die Funktion aus dem 3×3 ausgeblendet werden. Einstellungen öffnet Konto und Verbindungen; die medizinischen Schutzregeln bleiben auch bei eigenen Prompts aktiv.
 
 1. Bei der ZIP-Variante den Ordner vollständig entpacken und `RadIMO-ReportHalo.exe` starten. Wenn Codex bereits über den offiziellen Codex-Installer installiert ist, wird diese Installation verwendet.

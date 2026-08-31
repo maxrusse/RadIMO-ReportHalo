@@ -81,7 +81,7 @@ function validateBuildContract() {
 function validateInstallerContract() {
   const installer = fs.readFileSync(path.join(root, "scripts", "install-codex.ps1"), "utf8");
   if (!installer.includes("installerSha256") || !installer.includes("CODEX_RELEASE") || !installer.includes("Get-FileHash")) fail("Codex post-install helper does not verify and pin the official installer");
-  for (const relativePath of ["codex-runtime.json", "scripts/install-codex.ps1", "THIRD-PARTY-NOTICES.md", "LICENSES/Apache-2.0.txt"]) requireFile(relativePath);
+  for (const relativePath of ["codex-runtime.json", "scripts/install-codex.ps1", "EULA.txt", "THIRD-PARTY-NOTICES.md", "LICENSES/Apache-2.0.txt"]) requireFile(relativePath);
 }
 
 function validateOptionalPayload() {

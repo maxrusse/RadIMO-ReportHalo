@@ -52,7 +52,7 @@ class CodexAppServer {
 
     try {
       await this.request("initialize", {
-        clientInfo: { name: "radimoagent-desktop", title: "RadIMO - ReportHalo", version: packageVersion },
+          clientInfo: { name: "radimo-reporthalo", title: "RadIMO - ReportHalo", version: packageVersion },
         capabilities: { experimentalApi: true },
       }, { timeoutMs: INITIALIZE_TIMEOUT_MS });
     } catch (error) {
