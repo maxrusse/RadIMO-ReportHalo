@@ -1,0 +1,10 @@
+{
+  "version": "0.149.0",
+  "target": "x86_64-pc-windows-msvc",
+  "asset": "codex-x86_64-pc-windows-msvc.exe",
+  "downloadUrl": "https://github.com/openai/codex/releases/download/rust-v0.149.0/codex-x86_64-pc-windows-msvc.exe",
+  "sha256": "14b7e6b2356e82d1d9275579eaa588757b4e0a501b65dcc19fccdf77bd83dc00",
+  "installerAsset": "install.ps1",
+  "installerUrl": "https://github.com/openai/codex/releases/download/rust-v0.149.0/install.ps1",
+  "installerSha256": "391f247de2c70c7e99041979ec02dae7e76be27ac9cfc1dfe7c1eb21d48d8b97"
+}

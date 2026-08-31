@@ -2,6 +2,19 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 
 const TEXT_EXTENSIONS = new Set([".txt", ".md", ".markdown", ".json", ".csv", ".xml", ".html", ".htm"]);
+const MAX_PREVIEW_BYTES = 64 * 1024;
+const MAX_SELECTED_CHARS = 20_000;
+
+async function readTextPrefix(filePath, maxBytes) {
+  const handle = await fs.open(filePath, "r");
+  try {
+    const buffer = Buffer.alloc(maxBytes);
+    const result = await handle.read(buffer, 0, maxBytes, 0);
+    return { text: buffer.subarray(0, result.bytesRead).toString("utf8"), truncated: result.bytesRead === maxBytes };
+  } finally {
+    await handle.close();
+  }
+}
 
 function sectionHint(name) {
   const value = name.toLocaleLowerCase("de-DE");
@@ -20,7 +33,7 @@ async function readPreview(filePath) {
   const extension = path.extname(filePath).toLocaleLowerCase("de-DE");
   if (!TEXT_EXTENSIONS.has(extension)) return "Binary or unsupported preview; file is kept as a context reference.";
   try {
-    const content = await fs.readFile(filePath, "utf8");
+    const content = (await readTextPrefix(filePath, MAX_PREVIEW_BYTES)).text;
     const normalized = content.replace(/\r\n/g, "\n").trim();
     return normalized.length > 1200 ? `${normalized.slice(0, 1200)}\n…` : normalized || "Empty text file.";
   } catch (error) {
@@ -32,8 +45,9 @@ async function readSelectedContent(filePath) {
   const extension = path.extname(filePath).toLocaleLowerCase("de-DE");
   if (!TEXT_EXTENSIONS.has(extension)) return null;
   try {
-    const content = (await fs.readFile(filePath, "utf8")).replace(/\r\n/g, "\n");
-    return content.length > 20000 ? `${content.slice(0, 20000)}\n… [selected field truncated]` : content;
+    const result = await readTextPrefix(filePath, MAX_SELECTED_CHARS * 4 + 4);
+    const content = result.text.replace(/\r\n/g, "\n");
+    return result.truncated || content.length > MAX_SELECTED_CHARS ? `${content.slice(0, MAX_SELECTED_CHARS)}\n… [selected field truncated]` : content;
   } catch {
     return null;
   }
@@ -83,7 +97,7 @@ async function findAdjacentContext(sourcePath) {
 
 function formatContextReport(report) {
   const lines = [
-    "RadimoAgent context finder beta report",
+    "ReportHalo context finder beta report",
     `Generated: ${report.generatedAt}`,
     `Anchor: ${report.source.path}`,
     `Strategy: ${report.strategy}`,
@@ -101,4 +115,4 @@ function formatContextReport(report) {
   return lines.join("\n");
 }
 
-module.exports = { findAdjacentContext, formatContextReport };
+module.exports = { MAX_PREVIEW_BYTES, MAX_SELECTED_CHARS, findAdjacentContext, formatContextReport };

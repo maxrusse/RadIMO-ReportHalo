@@ -1,8 +1,13 @@
 const { spawn } = require("node:child_process");
+const fs = require("node:fs");
 const readline = require("node:readline");
 const { version: packageVersion } = require("../package.json");
-const { resolveCodexBinary } = require("./platform");
+const { CODEX_RUNTIME, resolveCodexBinary, resolveCodexBinaryInfo } = require("./platform");
 const { buildTurnInstructions } = require("./medical-gate");
+const { TEXT_ACTION_OUTPUT_SCHEMA } = require("./text-contract");
+
+const REQUEST_TIMEOUT_MS = 120_000;
+const INITIALIZE_TIMEOUT_MS = 30_000;
 
 class CodexAppServer {
   constructor({ bin = resolveCodexBinary(), cwd = process.cwd(), env = process.env, onNotification = () => {} } = {}) {
@@ -19,6 +24,10 @@ class CodexAppServer {
 
   async start() {
     if (this.child) return;
+    if (process.platform === "win32" && (!this.bin || !fs.existsSync(this.bin))) {
+      const info = resolveCodexBinaryInfo();
+      throw new Error(`Codex ${CODEX_RUNTIME.version} wurde nicht gefunden. Installiere den offiziellen Codex-Installer oder setze RADIMOAGENT_CODEX_BIN. Erwarteter Pfad: ${info.path || "nicht verfügbar"}`);
+    }
     this.closed = false;
     this.initialized = false;
     this.child = spawn(this.bin, ["app-server", "--listen", "stdio://"], {
@@ -41,23 +50,33 @@ class CodexAppServer {
       this.onNotification({ method: "radimoagent/closed", params: { code, signal } });
     });
 
-    await this.request("initialize", {
-      clientInfo: { name: "radimoagent-desktop", title: "RadimoAgent", version: packageVersion },
-      capabilities: { experimentalApi: true },
-    });
+    try {
+      await this.request("initialize", {
+        clientInfo: { name: "radimoagent-desktop", title: "RadIMO - ReportHalo", version: packageVersion },
+        capabilities: { experimentalApi: true },
+      }, { timeoutMs: INITIALIZE_TIMEOUT_MS });
+    } catch (error) {
+      this.close();
+      throw error;
+    }
     this.#notify("initialized", {});
     this.initialized = true;
   }
 
-  request(method, params) {
+  request(method, params, { timeoutMs = REQUEST_TIMEOUT_MS } = {}) {
     if (!this.child || this.closed) return Promise.reject(new Error("Codex app-server is not running"));
     const id = this.nextId++;
     const message = JSON.stringify({ method, id, params }) + "\n";
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`Codex app-server request timed out (${method}).`));
+      }, Math.max(1_000, Number(timeoutMs) || REQUEST_TIMEOUT_MS));
+      this.pending.set(id, { resolve, reject, timer });
       this.child.stdin.write(message, (error) => {
         if (error) {
           this.pending.delete(id);
+          clearTimeout(timer);
           reject(error);
         }
       });
@@ -93,9 +112,9 @@ class CodexAppServer {
     });
   }
 
-  async sendTurn({ threadId, text, model, effort, medicalGate = true, evidenceMode = false, radiologyMode = false, imagePath = null, assistantMode = "discussion", writingGuidance = "", fieldType = "befund", fieldLabel = "" }) {
+  async sendTurn({ threadId, text, model, effort, summary = "none", outputSchema = null, medicalGate = true, evidenceMode = false, radiologyMode = false, imagePath = null, assistantMode = "discussion", writingGuidance = "", fieldType = "befund", fieldLabel = "" }) {
     const instructions = buildTurnInstructions({ medicalGate, evidenceMode, radiologyMode, imageAttached: Boolean(imagePath), assistantMode, writingGuidance, fieldType, fieldLabel });
-    const guardedText = instructions ? `[RadimoAgent safety instructions]\n${instructions}\n[/RadimoAgent safety instructions]\n\n${text}` : text;
+    const guardedText = instructions ? `[RadIMO ReportHalo safety instructions]\n${instructions}\n[/RadIMO ReportHalo safety instructions]\n\n${text}` : text;
     const input = [{ type: "text", text: guardedText, text_elements: [] }];
     if (imagePath) input.push({ type: "localImage", path: imagePath, detail: "high" });
     return this.request("turn/start", {
@@ -103,6 +122,8 @@ class CodexAppServer {
       input,
       model: model || null,
       effort: effort || null,
+      summary: summary || "none",
+      ...(outputSchema ? { outputSchema } : {}),
       approvalPolicy: "never",
       sandboxPolicy: { type: "readOnly", networkAccess: Boolean(evidenceMode || (radiologyMode && assistantMode !== "correction")) },
     });
@@ -128,6 +149,7 @@ class CodexAppServer {
     if (message.id !== undefined && this.pending.has(message.id)) {
       const pending = this.pending.get(message.id);
       this.pending.delete(message.id);
+      clearTimeout(pending.timer);
       if (message.error) pending.reject(new Error(message.error.message || "Codex request failed"));
       else pending.resolve(message.result);
       return;
@@ -140,9 +162,12 @@ class CodexAppServer {
   }
 
   #failAll(error) {
-    for (const { reject } of this.pending.values()) reject(error);
+    for (const { reject, timer } of this.pending.values()) {
+      clearTimeout(timer);
+      reject(error);
+    }
     this.pending.clear();
   }
 }
 
-module.exports = { CodexAppServer };
+module.exports = { CodexAppServer, TEXT_ACTION_OUTPUT_SCHEMA };

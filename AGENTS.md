@@ -1,4 +1,4 @@
-# RadimoAgent project guidance
+# RadIMO – ReportHalo project guidance
 
 This project is a clean-room Windows radiology assistant. The report-writing rules below apply to code, prompts, tests, and documentation that touch German `Befund` or `Beurteilung` text.
 

@@ -1,0 +1,36 @@
+{
+  "appId": "de.radimo.agent",
+  "productName": "RadIMO - ReportHalo",
+  "directories": { "output": "dist-installer" },
+  "asar": true,
+  "electronLanguages": ["de", "en-US"],
+  "files": [
+    "src/**/*",
+    "assets/**/*",
+    "package.json",
+    "codex-runtime.json",
+    "README.md",
+    "README-DE.md",
+    "guidance/**/*",
+    "THIRD-PARTY-NOTICES.md",
+    "LICENSES/**/*"
+  ],
+  "extraFiles": [
+    { "from": "scripts/install-codex.ps1", "to": "Install-Codex.ps1" },
+    { "from": "codex-runtime.json", "to": "codex-runtime.json" }
+  ],
+  "win": {
+    "target": [{ "target": "nsis", "arch": ["x64"] }],
+    "icon": "assets/radimoagent.ico",
+    "signAndEditExecutable": false,
+    "artifactName": "RadIMO-ReportHalo-${version}-win-${arch}-setup.${ext}"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "shortcutName": "RadIMO - ReportHalo",
+    "runAfterFinish": true
+  }
+}

@@ -1,0 +1,50 @@
+name: Windows release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-draft-release:
+    runs-on: windows-latest
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Run release gate
+        run: npm run release:gate
+      - name: Build portable Codex-mode client and ZIP
+        run: npm run dist:codex
+      - name: Build direct API client
+        run: npm run dist:api
+      - name: Build Windows installer
+        run: npm run dist:installer
+      - name: Verify release artifacts
+        run: npm run release:artifacts
+      - name: Create draft GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = node -p "require('./package.json').version"
+          if ($env:GITHUB_REF_NAME -ne "v$version") {
+            throw "Release tag $($env:GITHUB_REF_NAME) does not match package version v$version"
+          }
+          $assets = @(
+            "dist/RadIMO-ReportHalo-$version-win-x64.exe",
+            "dist/RadIMO-ReportHalo-$version-win-x64.zip",
+            "dist-api/RadIMO-ReportHalo-$version-win-x64-api.exe",
+            "dist-installer/RadIMO-ReportHalo-$version-win-x64-setup.exe"
+          )
+          & gh release create $env:GITHUB_REF_NAME @assets --draft --verify-tag --generate-notes --title "RadIMO - ReportHalo $version"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

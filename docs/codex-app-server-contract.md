@@ -1,6 +1,6 @@
-# Codex app-server contract used by RadimoAgent
+# Codex app-server contract used by RadIMO – ReportHalo
 
-The local Codex CLI is the authentication and model-session boundary. RadimoAgent does not implement or store ChatGPT credentials itself.
+The local Codex CLI is the authentication and model-session boundary. RadIMO – ReportHalo does not implement or store ChatGPT credentials itself.
 
 The client uses the documented app-server JSON-RPC methods exposed by the installed Codex binary:
 
@@ -12,7 +12,7 @@ The client uses the documented app-server JSON-RPC methods exposed by the instal
 - `thread/start`
 - `turn/start`
 
-The current generated v2 schema also defines `turn/start.input` items of type `localImage` with an absolute `path` and optional `detail`. RadimoAgent uses that shape only for an explicitly checked “Attach image to next turn” screen capture. The temporary PNG is deleted after `turn/completed`; if the runtime rejects the item, the UI must fall back to text/copy workflows rather than claiming that vision ran.
+The current generated v2 schema also defines `turn/start.input` items of type `localImage` with an absolute `path` and optional `detail`. RadIMO – ReportHalo uses that shape only for an explicitly checked “Attach image to next turn” screen capture. The temporary PNG is deleted after `turn/completed`; if the runtime rejects the item, the UI must fall back to text/copy workflows rather than claiming that vision ran.
 
 The browser-login response contains an `authUrl`. Completion arrives as the `account/login/completed` notification. The app only forwards safe login status to the renderer; it never requests `includeToken: true`, never exposes access tokens through the preload bridge, and does not expose device-code login.
 

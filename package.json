@@ -1,46 +1,62 @@
 {
   "name": "radimoagent-desktop",
-  "version": "0.1.9",
+  "version": "0.2.11",
   "private": true,
-  "description": "Neutral RadimoAgent desktop client for authenticated Codex and ChatGPT work",
+  "description": "RadIMO - ReportHalo desktop client for transparent medical report quality review",
+  "radimoBackend": "codex",
   "main": "src/main.js",
-  "engines": { "node": ">=20.11.0" },
+  "engines": {
+    "node": ">=20.11.0"
+  },
   "scripts": {
-    "check": "node --check src/main.js && node --check src/preload.js && node --check src/platform.js && node --check src/codex-app-server.js && node --check src/context-finder.js && node --check src/reference-library.js && node --check src/clinic-source-library.js && node --check src/logger.js && node --check src/medical-gate.js && node --check src/report-writing-guidance.js && node --check src/template-library.js && node --check src/windows-field-bridge.js && node --check src/windows-proxy.js && node --check src/codex-proxy-env.js && node --check src/renderer/app.js && node --check scripts/package-win-zip.js && node scripts/check-ui-contract.js",
-    "test": "node test/radimoagent.test.js",
+    "test": "node --test test/release-contract.test.js",
+    "check": "node --check src/main.js && node --check src/preload.js && node --check src/platform.js && node --check src/codex-runtime.js && node --check src/codex-app-server.js && node --check src/text-contract.js && node --check src/runtime-config.js && node --check src/agent-api-config.js && node --check src/usage-budget.js && node --check src/openai-responses.js && node --check src/agent-backend.js && node --check src/clipboard-transfer.js && node --check src/context-finder.js && node --check src/reference-library.js && node --check src/clinic-source-library.js && node --check src/logger.js && node --check src/medical-gate.js && node --check src/openai-audio.js && node --check src/report-writing-guidance.js && node --check src/template-library.js && node --check src/windows-field-bridge.js && node --check src/windows-proxy.js && node --check src/codex-proxy-env.js && node --check src/workflow-state.js && node --check src/snip-preload.js && node --check src/renderer/app.js && node --check src/renderer/snip.js && node --check scripts/start-api.js && node --check scripts/package-win-zip.js && node --check scripts/check-windows-payload.js && node --check scripts/release-gate.js && node --check scripts/verify-release-artifacts.js",
+    "release:gate": "node scripts/release-gate.js",
+    "release:artifacts": "node scripts/verify-release-artifacts.js",
     "start": "electron .",
-    "smoke:renderer": "xvfb-run -a electron --no-sandbox --disable-gpu scripts/renderer-smoke.js",
-    "smoke:helper": "xvfb-run -a electron --no-sandbox --disable-gpu scripts/helper-smoke.js",
-    "smoke:app": "xvfb-run -a electron --no-sandbox --disable-gpu scripts/main-smoke.js",
+    "start:api": "node scripts/start-api.js",
     "preflight:win": "node scripts/check-windows-payload.js",
     "dist:zip": "node scripts/package-win-zip.js",
     "dist:win": "npm run preflight:win && electron-builder --win portable && npm run dist:zip",
-    "dist:selfextract": "npm run preflight:win && electron-builder --win portable --config scripts/win-selfextract-config.json"
+    "dist:codex": "npm run dist:win",
+    "dist:installer": "npm run preflight:win && electron-builder --win nsis --config scripts/win-installer-config.json",
+    "dist:api": "electron-builder --win portable --config scripts/win-api-config.json"
   },
   "devDependencies": {
-    "electron": "40.10.2",
-    "electron-builder": "25.1.8"
+    "electron": "44.1.0",
+    "electron-builder": "26.15.3"
   },
   "build": {
     "appId": "de.radimo.agent",
-    "productName": "RadimoAgent",
+    "productName": "RadIMO - ReportHalo",
     "asar": true,
-    "electronLanguages": ["de", "en-US"],
+    "electronLanguages": [
+      "de",
+      "en-US"
+    ],
     "files": [
       "src/**/*",
       "assets/**/*",
       "package.json",
+      "codex-runtime.json",
       "README.md",
       "README-DE.md",
-      "docs/**/*",
       "guidance/**/*",
-      "AGENTS.md"
+      "THIRD-PARTY-NOTICES.md",
+      "LICENSES/**/*"
     ],
     "win": {
-      "target": [{ "target": "portable", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "assets/radimoagent.ico",
       "signAndEditExecutable": false,
-      "artifactName": "RadimoAgent-${version}-win-${arch}.${ext}"
+      "artifactName": "RadIMO-ReportHalo-${version}-win-${arch}.${ext}"
     }
   }
 }

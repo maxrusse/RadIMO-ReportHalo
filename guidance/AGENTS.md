@@ -1,4 +1,4 @@
-# RadimoAgent report-writing guidance
+# RadIMO – ReportHalo report-writing guidance
 
 This is the transparent, app-owned guidance profile for German radiology report text (`Befund` and `Beurteilung`). It is a writing aid, not a diagnostic knowledge base and not a replacement for the reporting radiologist.
 

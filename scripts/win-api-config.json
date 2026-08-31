@@ -1,0 +1,29 @@
+{
+  "appId": "de.radimo.agent.api",
+  "productName": "RadIMO - ReportHalo API",
+  "directories": { "output": "dist-api" },
+  "asar": true,
+  "electronLanguages": ["de", "en-US"],
+  "extraMetadata": { "radimoBackend": "api" },
+  "files": [
+    "src/**/*",
+    "!src/codex-app-server.js",
+    "!src/platform.js",
+    "!src/codex-proxy-env.js",
+    "assets/**/*",
+    "package.json",
+    "codex-runtime.json",
+    "README.md",
+    "README-DE.md",
+    "guidance/**/*",
+    "THIRD-PARTY-NOTICES.md",
+    "LICENSES/**/*",
+    "!vendor/**/*"
+  ],
+  "win": {
+    "target": [{ "target": "portable", "arch": ["x64"] }],
+    "icon": "assets/radimoagent.ico",
+    "signAndEditExecutable": false,
+    "artifactName": "RadIMO-ReportHalo-${version}-win-${arch}-api.${ext}"
+  }
+}

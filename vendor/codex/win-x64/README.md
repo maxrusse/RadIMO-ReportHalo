@@ -7,10 +7,10 @@ SHA-256: 14b7e6b2356e82d1d9275579eaa588757b4e0a501b65dcc19fccdf77bd83dc00
 Source: https://github.com/openai/codex/releases/tag/rust-v0.149.0
 ```
 
-For a future refresh, place the approved Windows `codex.exe` binary in this directory before running:
+For a local development override, place the approved Windows `codex.exe` binary in this directory. The release build does not require or embed this ignored file; it uses the external official Codex installer path instead.
 
 ```text
-npm run dist:win
+npm run preflight:win
 ```
 
-The build copies it to `resources/codex/codex.exe`. This repository does not modify the shared Codex installation automatically.
+The preflight verifies its SHA-256 against `codex-runtime.json`. This repository does not modify the shared Codex installation automatically.

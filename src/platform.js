@@ -1,16 +1,3 @@
-const path = require("node:path");
-const fs = require("node:fs");
+const { CODEX_RUNTIME, getCodexCandidates, resolveCodexBinary, resolveCodexBinaryInfo } = require("./codex-runtime");
 
-function resolveCodexBinary({ platform = process.platform, env = process.env, resourcesPath = process.resourcesPath, executablePath = process.execPath, filesystem = fs } = {}) {
-  if (env.RADIMOAGENT_CODEX_BIN) return env.RADIMOAGENT_CODEX_BIN;
-  if (platform === "win32") {
-    const portableAdjacent = env.PORTABLE_EXECUTABLE_DIR ? path.win32.join(env.PORTABLE_EXECUTABLE_DIR, "codex", "codex.exe") : null;
-    if (portableAdjacent && filesystem.existsSync(portableAdjacent)) return portableAdjacent;
-    const adjacent = path.win32.join(path.win32.dirname(executablePath || ""), "codex", "codex.exe");
-    if (adjacent && filesystem.existsSync(adjacent)) return adjacent;
-    return path.win32.join(resourcesPath || path.dirname(process.execPath), "codex", "codex.exe");
-  }
-  return "/software/codex/bin/codex";
-}
-
-module.exports = { resolveCodexBinary };
+module.exports = { CODEX_RUNTIME, getCodexCandidates, resolveCodexBinary, resolveCodexBinaryInfo };

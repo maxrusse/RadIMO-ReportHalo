@@ -1,4 +1,7 @@
 node_modules/
 dist/
+dist-api/
+dist-installer/
 release/
 vendor/codex/win-x64/codex.exe
+.preview-*/

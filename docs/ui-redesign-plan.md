@@ -1,136 +1,72 @@
-# RadimoAgent UI redesign plan
+# RadIMO – ReportHalo UI redesign plan
 
-Status: Minimal UI pass implemented; workflow/artifact hardening remains
+Status: 0.2.11 is mini-only. The Floating Orb is the only product window; longer workflows open as attached panels inside that same movable window.
 
 ## Product decision
 
-RadimoAgent should have two coordinated surfaces:
+RadIMO – ReportHalo stays beside the RIS, Word, or another Windows editor as one always-on-top Orb. There is no large desktop mode, no second product BrowserWindow, and no visible mode selector. The temporary screen-region selector is an implementation overlay, not a second product surface. The foreign editor remains authoritative; after the user explicitly locks a target, correction and structure replace that field directly after identity validation, while assessment appends below the existing content. Without a locked target, the result remains available in the attached result panel.
 
-1. **Helper**: the primary RIS-side surface for capture, dictation, structuring, artifact review, and transfer.
-2. **Desktop**: a calm discussion workspace for medical/logical review, differential discussion, evidence, and case history. The RIS remains the report editor.
+## Orb map
 
-The Helper and Desktop share one case/workflow state. They are not two independent chats.
+The central 3×3 board remains spatially stable:
 
-## Naming
+| Position | Action |
+| --- | --- |
+| top left | activate the focused external field |
+| top middle | write out / formulate |
+| top right | dictate |
+| middle left | correct text |
+| center | quiet signal-core ready state / restrained orbital working indicator |
+| middle right | replace the active external field with the result |
+| bottom left | structure and complete from supplied text |
+| bottom middle | create assessment |
+| bottom right | open the attached review panel |
 
-- Desktop activity minimap → **Arbeitsradar**
-- Helper central status area → **Radimo Helfer**
-- A generated result → **Artefakt**
-- A selected external field → **Zielbindung**
-- A fresh independent conversation → **Neuer Fall**
+The classic header bar is removed. The transparent Orb has no permanent top control row; account/settings and close live in the core's right-click menu, while the center signal core is the native drag region. The target cell's right-click menu exposes selection, copy, and reset only when relevant. The right edge opens the combined Text & Chat workspace, and the lower Chat edge control opens the same workspace with chat focus. The workspace keeps the text/context pane left and the larger discussion pane right; on narrow surfaces it stacks Chat above Text. Context remains separate. Clicking either active workspace opener closes it. No action is duplicated between board and bars.
 
-## Simplifications
+## Attached panels
 
-Remove from the primary desktop flow:
+Right-click on the core or a function opens a compact local menu. The core menu exposes account/settings and action configuration; configurable AI functions expose their prompt and 3×3 visibility controls. The menu is an interaction layer, not a second permanent toolbar.
 
-- six orbiting moon controls;
-- ambiguous `Explore`, `Assist`, and decorative action buttons;
-- duplicated context/reference/capture surfaces shown at the same time;
-- unrestricted automatic write-back;
-- the assumption that the complete conversation is the thing returned to a clinical field.
+Chat, Textquelle, Context, Review, and Account are rendered inside the Orb's single BrowserWindow. Text & Chat, Review, Context, and Account use a connected right-side track; the combined workspace is the only shared discussion surface and is never an independent popup. Opening a panel grows the native window in that direction and leaves it open until its opener is clicked again; the center core remains the drag handle, so every panel moves with the Orb and never loses its owner.
 
-Keep the existing capabilities, but put them behind clear sections and explicit actions.
+The compact base is 360 × 380 px. Panel presets are bounded and selected by the main process (`workspace`, `review`, `context`, `settings`); the workspace uses a 980 × 640 px connected right-side track while preserving the Orb column. Position persistence stores only the compact base geometry, so a previous expanded panel cannot turn startup into a large app.
 
-The desktop shell is intentionally reduced to `Fall-Diskussion`, `Modus`, `Kontext`,
-`Neuer Fall`, the message stream, and the composer. Clinic sources, templates, and guidance only
-appear in the secondary context drawer. The status rail only
-shows mode, target, phase, and artifacts. Explanatory product copy and duplicated
-navigation are not part of the primary view.
+## Active Arbeitsfläche auswählen
 
-## Helper structure
+The top-left 3×3 target cell is both the compact status surface and a text drop target. Clicking it activates the focused external field without taking focus from it; the field identity stays locked while ReportHalo works. Its X clears the target or local source. The target cell's right-click menu reads marked text only when selection capture is requested. Dropped text becomes a local source and never silently becomes a foreign-app write target.
 
-The Helper is a narrow vertical panel:
+The main-process bridge uses this order:
 
-1. **Header**: RadimoAgent, current case, close/minimize.
-2. **Arbeitskern**: mode, target, and truthful live phase.
-3. **Primary action**: `Bericht diktieren` or `Feld erfassen`.
-4. **Zielbindung**: `Befund`, `Beurteilung`, or no target; lock/release.
-5. **Artefakte**: `Befund`, `Beurteilung`, `Korrektur`, `Diskussion`.
-6. **Next actions**: `Strukturieren`, `Im Desktop diskutieren`, `Übernehmen`, `Kopieren`.
+1. Windows UI Automation `FocusedElement` with a short retry for a control that disappears during a redraw.
+2. The focused element's stable identity (`ProcessId`, `AutomationId`, control type, runtime ID, and name), plus its top-level native window resolved from `NativeWindowHandle` with the foreground window as fallback.
+3. `ValuePattern` for a complete readable field.
+4. `TextPattern.GetSelection()` for an explicit selection, or `TextPattern.DocumentRange` for the complete text.
+5. No implicit clipboard read. Drag-and-drop is the explicit text fallback.
 
-No moon navigation is needed in this surface. The current state and the next safe action should be visible without opening another menu.
+Selection capture does not silently degrade to the whole field when no text is selected. Before insertion, the bridge rechecks the saved top-level window and process/control/runtime identity and verifies the result when the control is readable.
 
-## Desktop structure
+## AI and insertion flow
 
-Use a focused discussion layout:
+Correction, write-out, structure/complete, and assessment send directly from the Orb. Their model response is a compact JSON envelope: `text` is the complete action result; `changes`, `unclear`, `logicIssues`, and `medicalIssues` are short metadata lists. Only `text` can reach the external field. Captured field text and local Text content are automatically included as discussion context; no copy step is needed. Chat can remain conversational, or `Vorschlag ins Textfeld` can request a proposal envelope. A proposal is always opened in the local Text pane, can be edited or dragged as a local source, and never changes the foreign field. On completion, a locked external target receives correction and structure as replacements, while assessment is appended below existing content, each only after bridge validation. A per-action `Vor Übernahme im Editor prüfen` setting diverts the result into the same Text pane without touching the foreign field; `Zur Prüfung` then opens the manually revised text in Review, and `Übernehmen` performs the final replacement or append. Metadata is posted into the Chat pane, where the user can continue the discussion. Chat is the only verbose surface and never writes its answer to a foreign field. The center is status-only: it shows an IP-neutral signal-core mark when ready and one slow, restrained orbital indicator while the agent works. Without a target, the result is kept locally and no foreign field is touched.
 
-- **Primary workspace**: open case discussion; selected report artifacts remain separate from the RIS.
-- **Transient status**: mode, target, phase, and artifacts appear only when they carry information; no empty status rail is shown on the default screen.
-- **Secondary drawer**: context files, references, templates, guidance, and screen capture.
+## Performance and safety
 
-The default desktop screen should show one task, one primary action, and one clear safety state. Advanced reference/context tools open as secondary panels instead of competing with the report.
+- Use only the center core as the `-webkit-app-region: drag` area. Buttons, inputs, panels, and text areas are `no-drag`.
+- Do not run renderer `pointermove` loops for native window movement.
+- Select the backend lazily so the API build does not load the Codex adapter or payload; keep direct API conversation history bounded and stream response text as it arrives.
+- Keep panel geometry fixed and bounded, reconcile panel changes as latest-request-wins, and schedule connector recalculation with `requestAnimationFrame` only after the native layout response.
+- Debounce persisted Orb-position writes and reserve animation for the active working state; honor `prefers-reduced-motion`.
+- Keep the helper non-focusable while reading a foreign field; enable focus only for attached inputs and settings.
+- Never treat stale clipboard content as the active field.
+- Preserve numbers, units, laterality, anatomy, negation, uncertainty, dates, temporal qualifiers, and recommendations in radiology text.
+- Keep target activation opt-in and verify every automatic foreign-field replacement where the Windows control permits read-back.
+- Show the last result as a right-side before/after Diff by default; keep the replacement text in a separate editable Text view.
 
-## Workflow state
+## Implementation cleanup
 
-Every workflow carries:
+The 0.2.10 pass removes the desktop shell, desktop-only target/composer/canvas code, duplicate main-window IPC bridges, duplicated settings/context buttons, legacy visible mode controls, and the old renderer-side popup overlays. Retired test harnesses are archived outside the active repository; the release package now uses focused contract tests, syntax validation, and verified packaging commands.
 
-```text
-caseId
-origin: helper | desktop
-mode: dictate | structure | correction | discussion | differential | conclusion
-target: none | Befund | Beurteilung | selected-field
-targetIdentity: process/window/control identity when external
-artifacts: raw-dictation, Befund-draft, Beurteilung-draft, correction, discussion, sources
-phase: idle | capturing | structuring | reviewing | ready | transferring | blocked
-```
+## References
 
-The model may create artifacts, but only the user can approve a transfer. A transfer always selects one artifact and one target. The complete chat is never pasted into a clinical field.
-
-## Live status
-
-Use event-driven phases, not invented percentages:
-
-- `Diktat wird erfasst`
-- `Befund wird strukturiert`
-- `Beurteilung wird geprüft`
-- `Kontext wird gelesen`
-- `Differenzialdiagnose wird vorbereitet`
-- `Quellen werden geprüft`
-- `Entwurf bereit`
-
-The Arbeitskern can use a restrained pulse/orbit animation during an active phase, but must stop animating when the turn ends or fails.
-
-## Implementation phases
-
-### Phase 1 — visual foundation — implemented
-
-- Replace moon layout with the Helper panel and focused single-column Desktop shell.
-- Establish German-first typography, spacing, state colors, buttons, tabs, and panels.
-- Keep existing IPC and model behavior behind the new layout.
-- Use short German-first labels and remove moon controls from both surfaces.
-- Use a vertical helper by default, with a compact Mini view.
-
-### Phase 2 — workflow and artifacts — in progress
-
-- Add one shared workflow state in the main process. **Implemented in memory:** case ID, origin, field type, mode, phase, target, and named artifacts are broadcast to both windows.
-- Store local Markdown artifacts with a small manifest.
-- Add artifact-specific copy, discussion, save, and transfer actions. **Current implementation:** field-specific copy/write-back and helper-to-desktop discussion handoff; explicit disk persistence remains.
-
-### Phase 3 — safe transfer
-
-- Add explicit target section detection or user selection.
-- Revalidate the latest locked window/control before transfer.
-- Show a before/after diff for Befund and Beurteilung.
-- Stop transfer when target identity or section has changed.
-
-### Phase 4 — review workspace
-
-- Keep report editing in the RIS; use the desktop for discussion and selected artifact review.
-- Add discussion, differential, and source panels as secondary views.
-- Add `Neuer Fall` to clear the conversation while retaining optional saved artifacts.
-
-### Phase 5 — validation
-
-- Renderer smoke tests for both surfaces.
-- Workflow transition tests.
-- Artifact isolation tests proving that full chat cannot be written to a field.
-- Target identity and changed-window tests.
-- German UI text and Markdown guidance checks.
-
-## Design rule
-
-Every screen should answer three questions immediately:
-
-1. What am I doing now?
-2. What text or field is the current target?
-3. What is the one safe next action?
+The active-field pattern follows Microsoft's UI Automation guidance for retrieving the focused element and using control patterns, especially `FocusedElement`, `TextPattern.GetSelection()`, and `ValuePattern`. Native movement follows Electron's frameless `app-region: drag`, `setSize`, and `setFocusable` model. General visual spacing continues to follow Fluent 2 and WCAG 2.1 AA.

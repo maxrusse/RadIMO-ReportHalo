@@ -11,6 +11,22 @@ const AGENTS_FILE_NAME = "AGENTS.md";
 const SOURCE_MARKER_START = "<!-- RADIMOAGENT CLINIC SOURCE REFERENCES -->";
 const SOURCE_MARKER_END = "<!-- END RADIMOAGENT CLINIC SOURCE REFERENCES -->";
 
+async function sha256File(filePath) {
+  const handle = await fs.open(filePath, "r");
+  const hash = crypto.createHash("sha256");
+  const buffer = Buffer.alloc(64 * 1024);
+  try {
+    while (true) {
+      const result = await handle.read(buffer, 0, buffer.length, null);
+      if (!result.bytesRead) break;
+      hash.update(buffer.subarray(0, result.bytesRead));
+    }
+    return hash.digest("hex");
+  } finally {
+    await handle.close();
+  }
+}
+
 function clinicConfigPath(userDataPath) {
   return path.join(userDataPath, CLINIC_CONFIG_NAME);
 }
@@ -138,7 +154,7 @@ async function inspectClinic(clinicPath, name = path.basename(clinicPath)) {
     const filePath = path.join(sourceDir, entry.name);
     const stat = await fs.stat(filePath);
     const hash = referencedHash(agents, relativeSourcePath(clinic, filePath));
-    const currentHash = crypto.createHash("sha256").update(await fs.readFile(filePath)).digest("hex");
+    const currentHash = await sha256File(filePath);
     clinic.sources.push({
       name: entry.name,
       path: filePath,
@@ -197,13 +213,12 @@ async function readClinicSource(library, clinicIdValue, sourcePath) {
   const source = safeChild(clinic.sourceDir, sourcePath);
   const catalogItem = clinic.sources.find((item) => item.path === source);
   if (!catalogItem) throw new Error("Die PDF liegt nicht im Quellen-Unterordner der Klinik.");
-  const bytes = await fs.readFile(source);
-  const sha256 = crypto.createHash("sha256").update(bytes).digest("hex");
+  const sha256 = await sha256File(source);
   const cachedPath = cachePath(clinic, sha256);
   let item;
   try {
     const cachedContent = (await fs.readFile(cachedPath, "utf8")).trim();
-    item = { name: path.basename(source), path: source, sourceType: "local", extension: ".pdf", size: bytes.length, status: cachedContent ? "ready" : "empty", reason: "Lokaler Textcache der bereits gelesenen Klinikquelle.", content: cachedContent, preview: cachedContent.slice(0, 420) };
+    item = { name: path.basename(source), path: source, sourceType: "local", extension: ".pdf", size: catalogItem.size, status: cachedContent ? "ready" : "empty", reason: "Lokaler Textcache der bereits gelesenen Klinikquelle.", content: cachedContent, preview: cachedContent.slice(0, 420) };
   } catch {
     item = await readReferenceFile(source);
     if (item.status === "ready" && item.content) {

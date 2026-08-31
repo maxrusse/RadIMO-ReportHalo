@@ -1,869 +1,369 @@
 const state = {
   models: [],
-  selectedModel: "gpt-5.6-luna",
-  messages: [],
+  selectedModel: "",
+  backend: "codex",
+  apiProvider: "openai",
+  apiConfigLocks: { provider: false, authMode: false, endpoint: false, model: false, audioDeployment: false },
   loggedIn: false,
   contextReport: null,
-  activities: [],
-  lastAgentText: "",
-  helperTask: "ask",
   focusedTarget: null,
   fieldLocked: false,
-  assistantMode: "discussion",
-  writingProfile: "german-radiology",
+  helperFieldType: "befund",
+  helperSourceText: "",
+  pendingDictationText: "",
+  lastAgentText: "",
+  workflow: null,
   referencePack: [],
   clinicCatalog: null,
   selectedClinicId: "",
   screenCapture: null,
-  artifacts: [],
-  helperFieldType: "befund",
-  workflow: null,
+  writingProfile: "german-radiology",
+  recording: null,
+  working: false,
+  activePanel: "",
+  activeTask: "",
+  lastSourceText: "",
+  lastAgentResult: "",
+  lastResultTask: "",
+  lastAgentMeta: { changes: [], unclear: [], logicIssues: [], medicalIssues: [] },
+  lastResultApplied: false,
+  lastResultTarget: null,
+  manualReviewPending: false,
+  transferInFlight: false,
+  pendingDictationTarget: null,
+  chatMessages: [],
+  chatAssistantNode: null,
+  chatUnread: false,
+  workspaceFocus: "chat",
+  reviewMode: "diff",
+  editorMode: "source",
+  actionSettings: {},
+  contextMenuTarget: "",
+  configTask: "correction",
+  settingsOpen: false,
+  dialogReturnFocus: null,
+  panelReturnFocus: null,
+  contextMenuReturnFocus: null,
+  connectionOnline: false,
 };
 
 const HELPER_FIELD_LABELS = {
   befund: "Befund",
-  beurteilung: "Beurteilung / Zusammenfassung",
+  beurteilung: "Beurteilung",
   fragestellung: "Fragestellung",
   anforderung: "Anforderung",
-  sonstiges: "Sonstiger Text",
-};
-
-const MODE_DESCRIPTIONS = {
-  discussion: "Diskussion",
-  report: "Strukturieren",
-  correction: "Lektorat",
-  differential: "Differenzialdiagnose",
-  conclusion: "Beurteilung",
+  sonstiges: "Text",
 };
 
 const $ = (id) => document.getElementById(id);
-const helperMode = new URLSearchParams(window.location.search).get("mode") === "helper";
-if (helperMode) document.body.classList.add("helper-mode");
+const on = (id, event, handler) => { const node = $(id); if (node) node.addEventListener(event, handler); };
+const text = (id, value) => { const node = $(id); if (node) node.textContent = value; };
+const PANEL_IDS = ["miniEditorDrawer", "miniConfigDrawer", "miniChatDrawer", "miniReviewDrawer", "contextDrawer", "loginModal"];
+const PANEL_KEYS = { miniWorkspaceDrawer: "workspace", miniEditorDrawer: "editor", miniConfigDrawer: "config", miniChatDrawer: "chat", miniReviewDrawer: "review", contextDrawer: "context", loginModal: "settings" };
+const DEFAULT_HELPER_MODEL = "gpt-5.6-luna";
+const SPARK_MODEL_ID = "gpt-5.3-codex-spark";
+const HELPER_REASONING_EFFORT = "low";
+const MAX_CHAT_MESSAGES = 40;
+const MAX_CHAT_MESSAGE_CHARS = 24_000;
+const ACTION_SETTINGS_STORAGE_KEY = "radimoagent.action-settings.v1";
+const ACTION_SETTING_DEFAULTS = {
+  write: { visible: true, prompt: "", manualReview: false },
+  correction: { visible: true, prompt: "", manualReview: false },
+  structure: { visible: true, prompt: "", manualReview: false },
+  assessment: { visible: true, prompt: "", manualReview: false },
+};
+const panelLayoutEpoch = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+let panelLayoutRequest = 0;
+let chatAssistantRenderFrame = 0;
+let pendingChatAssistantText = "";
+const MINI_ACTIONS = {
+  miniCore: { label: "ReportHalo", kind: "core" },
+  miniTargetCell: { label: "Arbeitsfeld", run: true },
+  miniWrite: { label: "Klarer formulieren", task: "write", run: true, configurable: true, hideable: true },
+  miniDictate: { label: "Diktat", run: true },
+  miniCorrection: { label: "Lektorat", task: "correction", run: true, configurable: true, hideable: true },
+  miniInsert: { label: "Ergebnis anwenden", run: true },
+  miniStructure: { label: "Strukturieren", task: "structure", run: true, configurable: true, hideable: true },
+  miniAssessment: { label: "Beurteilung ergänzen", task: "assessment", run: true, configurable: true, hideable: true },
+  miniReview: { label: "Ergebnis prüfen", run: true, hideable: false },
+  miniEditorToggle: { label: "Textquelle", run: true },
+  miniContextToggle: { label: "Kontext", run: true },
+  miniChatToggle: { label: "Chat", run: true },
+};
 
-function applyGermanUi() {
-  // The main shell is German-first in the markup. Keep this hook only for
-  // runtime-created windows and avoid mutating the information architecture.
-  document.documentElement.lang = "de";
-  document.title = helperMode ? "RadimoAgent Helfer" : "RadimoAgent";
+function modelId(model) {
+  return String(model?.id || model?.model || "").trim();
 }
 
-function nowLabel() {
-  return new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date());
+function preferredModelId(models) {
+  const entries = (Array.isArray(models) ? models : [])
+    .map((entry) => ({
+      entry,
+      id: modelId(entry),
+      label: String(entry?.displayName || entry?.name || ""),
+    }))
+    .filter(({ id }) => id);
+  const spark = entries.find(({ id, label }) => id.toLowerCase() === SPARK_MODEL_ID || `${id} ${label}`.toLowerCase().includes("spark"));
+  const luna = entries.find(({ id }) => id.toLowerCase() === DEFAULT_HELPER_MODEL);
+  return spark?.id || luna?.id || entries[0]?.id || DEFAULT_HELPER_MODEL;
 }
 
 function showToast(message) {
   const toast = $("toast");
+  if (!toast) return;
   toast.textContent = message;
   toast.classList.remove("hidden");
   window.clearTimeout(showToast.timer);
   showToast.timer = window.setTimeout(() => toast.classList.add("hidden"), 3400);
 }
 
-function setIslandState(label) {
-  $("islandState").textContent = label;
-  const phase = $("radarPhase");
-  if (phase) phase.textContent = label;
-}
-
-function setStatus(online, label, detail) {
-  $("statusDot").classList.toggle("online", online);
-  $("statusText").textContent = label;
-  $("accountText").textContent = detail;
-}
-
-function addActivity(label, detail, active = false) {
-  state.activities.unshift({ label, detail, active, time: nowLabel() });
-  state.activities = state.activities.slice(0, 7);
-  const list = $("activityList");
-  list.replaceChildren();
-  for (const item of state.activities) {
-    const node = document.createElement("div");
-    node.className = `activity-item${item.active ? " active" : ""}`;
-    node.innerHTML = `<i></i><div><strong></strong><small></small></div><span class="activity-time"></span>`;
-    node.querySelector("strong").textContent = item.label;
-    node.querySelector("small").textContent = item.detail;
-    node.querySelector(".activity-time").textContent = item.time;
-    list.append(node);
-  }
-}
-
-function renderArtifacts() {
-  const list = $("artifactList");
-  if (!list) return;
-  list.replaceChildren();
-  if (!state.artifacts.length) {
-    const empty = document.createElement("div");
-    empty.className = "artifact-empty";
-    empty.textContent = "Keine";
-    list.append(empty);
-    return;
-  }
-  for (const artifact of state.artifacts.slice(-5).reverse()) {
-    const node = document.createElement("div");
-    node.className = "artifact-item";
-    node.innerHTML = "<strong></strong><small></small>";
-    node.querySelector("strong").textContent = artifact.label;
-    node.querySelector("small").textContent = artifact.detail;
-    list.append(node);
-  }
-}
-
-function applyWorkflowState(workflow) {
-  if (!workflow) return;
-  state.workflow = workflow;
-  state.artifacts = Array.isArray(workflow.artifacts) ? workflow.artifacts : [];
-  renderArtifacts();
-  if ($("radarPhase")) $("radarPhase").textContent = workflow.phase === "ready" ? "Bereit" : workflow.phase;
-  if ($("radarTarget")) $("radarTarget").textContent = workflow.fieldLabel ? `${workflow.target === "selected-field" ? "RIS · " : ""}${workflow.fieldLabel}` : "Kein RIS-Feld";
-  if ($("radarMode")) $("radarMode").textContent = workflow.mode || "Diskussion";
-  if (workflow.fieldType && $("helperFieldType")) setHelperFieldType(workflow.fieldType);
-}
-
-async function publishArtifact(label, detail, kind = "draft") {
-  const text = state.lastAgentText.trim();
-  if (!text || !window.radimoAgent.addWorkflowArtifact) return;
+function loadActionSettings() {
+  let stored = {};
   try {
-    const workflow = await window.radimoAgent.addWorkflowArtifact({
-      kind,
-      label,
-      detail,
-      text,
-      source: helperMode ? "helper" : "desktop",
-    });
-    applyWorkflowState(workflow);
-  } catch (error) {
-    addActivity("Entwurf nicht gespeichert", error.message || "Lokaler Fallstatus nicht verfügbar", true);
-  }
-}
-
-function renderModels() {
-  const select = $("modelSelect");
-  select.replaceChildren();
-  const models = state.models.length ? state.models : [
-    { id: "gpt-5.6-luna", displayName: "GPT-5.6 Luna", inputModalities: ["text", "image"] },
-    { id: "gpt-5.6-terra", displayName: "GPT-5.6 Terra", inputModalities: ["text", "image"] },
-    { id: "gpt-5.6-sol", displayName: "GPT-5.6 Sol", inputModalities: ["text", "image"] },
-  ];
-  for (const model of models) {
-    const option = document.createElement("option");
-    option.value = model.id;
-    option.textContent = model.displayName || model.id;
-    option.selected = model.id === state.selectedModel;
-    select.append(option);
-  }
-  if (![...select.options].some((option) => option.selected)) select.selectedIndex = 0;
-  state.selectedModel = select.value;
-  updateImageAttachmentCapability();
-}
-
-function selectedModelSupportsImage() {
-  const model = state.models.find((entry) => entry.id === state.selectedModel || entry.model === state.selectedModel);
-  return !model || !Array.isArray(model.inputModalities) || model.inputModalities.includes("image");
-}
-
-function updateImageAttachmentCapability() {
-  const checkbox = $("useScreenCapture");
-  if (!checkbox || !state.screenCapture) return;
-  const supported = selectedModelSupportsImage();
-  checkbox.disabled = !supported;
-  if (!supported) {
-    checkbox.checked = false;
-    $("screenCaptureStatus").textContent = "Dieses Modell unterstützt keine Bilder; die Aufnahme kann nur kopiert werden.";
-  }
-}
-
-function addMessage(role, text) {
-  state.messages.push({ role, text });
-  $("messages").querySelector(".empty-state")?.remove();
-  const node = document.createElement("article");
-  node.className = `message ${role}`;
-  node.innerHTML = `<div class="message-label">${role === "user" ? "Du" : "RadimoAgent"}</div><div></div>`;
-  node.lastElementChild.textContent = text;
-  $("messages").append(node);
-  $("messages").scrollTop = $("messages").scrollHeight;
-}
-
-function openLogin() { $("loginModal").classList.remove("hidden"); $("loginStatus").textContent = ""; }
-function closeLogin() { $("loginModal").classList.add("hidden"); }
-
-async function refreshConnection() {
-  try {
-    const status = await window.radimoAgent.getStatus();
-    state.loggedIn = Boolean(status?.authMethod);
-    setStatus(state.loggedIn, state.loggedIn ? "Verbunden" : "Anmeldung erforderlich", state.loggedIn ? "ChatGPT über lokalen App-Server" : "Kein Konto verbunden");
-    addActivity(state.loggedIn ? "Identität bereit" : "Warten auf Anmeldung", state.loggedIn ? "Lokale Kontositzung verfügbar" : "Kontomenü öffnen, um fortzufahren", !state.loggedIn);
-  } catch (error) {
-    setStatus(false, "Nicht verfügbar", error.message || "Lokaler App-Server nicht verfügbar");
-    addActivity("Verbindung nicht verfügbar", "Der lokale App-Server konnte nicht erreicht werden", true);
-  }
-}
-
-async function loadModels() {
-  try {
-    const result = await window.radimoAgent.listModels();
-    state.models = result?.data || [];
-    renderModels();
-    addActivity("Modelle geladen", `${state.models.length || 3} verfügbar`, false);
+    stored = JSON.parse(window.localStorage.getItem(ACTION_SETTINGS_STORAGE_KEY) || "{}");
   } catch {
-    renderModels();
-    addActivity("Standardmodell aktiv", "Modellliste noch nicht verfügbar", false);
+    stored = {};
   }
+  state.actionSettings = Object.fromEntries(Object.entries(ACTION_SETTING_DEFAULTS).map(([task, defaults]) => {
+    const value = stored?.[task] || {};
+    return [task, {
+      visible: value.visible !== false,
+      prompt: typeof value.prompt === "string" ? value.prompt.trim().slice(0, 1200) : defaults.prompt,
+      manualReview: value.manualReview === true,
+    }];
+  }));
 }
 
-async function loginWith(startLogin, label) {
-  $("loginStatus").textContent = label;
-  addActivity("Anmeldung läuft", "Browser-Anmeldung geöffnet", true);
+function saveActionSettings() {
   try {
-    const result = await startLogin();
-    if (result?.authUrl) $("loginStatus").textContent = "Anmeldung im Browser gestartet. Danach hierher zurückkehren.";
-    else $("loginStatus").textContent = "Anmeldung im Browser abschließen und hierher zurückkehren.";
-  } catch (error) {
-    const message = error.message || "Anmeldung konnte nicht gestartet werden.";
-    $("loginStatus").textContent = message;
-    try {
-      const diagnostics = await window.radimoAgent.getDiagnostics();
-      $("logPath").textContent = diagnostics.path ? `Log: ${diagnostics.path}` : "Logpfad noch nicht verfügbar.";
-    } catch { /* the original login error is already useful */ }
-    addActivity("Anmeldung fehlgeschlagen", message.split("\n")[0], true);
+    window.localStorage.setItem(ACTION_SETTINGS_STORAGE_KEY, JSON.stringify(state.actionSettings));
+  } catch {
+    // A non-persistent profile should not block the helper.
   }
 }
 
-function login() { return loginWith(() => window.radimoAgent.startBrowserLogin(), "Opening browser sign-in…"); }
-
-async function logout() {
-  try {
-    await window.radimoAgent.logout();
-    state.loggedIn = false;
-    addActivity("Abgemeldet", "Lokale Sitzung beendet", false);
-    await refreshConnection();
-    $("loginStatus").textContent = "Abgemeldet.";
-  } catch (error) {
-    $("loginStatus").textContent = error.message || "Sign-out could not be completed.";
+function renderActionVisibility() {
+  for (const [id, config] of Object.entries(MINI_ACTIONS)) {
+    if (!config.hideable || !config.task) continue;
+    $(id)?.classList.toggle("hidden", state.actionSettings?.[config.task]?.visible === false);
   }
 }
 
-function contextPrompt() {
-  if (!state.contextReport || !$("useContext").checked) return "";
-  const blocks = state.contextReport.items.map((item) => `### ${item.relation} · ${item.section} · ${item.name}\n${item.content || item.preview}`).join("\n\n");
-  return `\n\n[Explicitly attached local context beta]\n${blocks}\n[/Explicitly attached local context beta]`;
+function configuredActionPrompt(task) {
+  const value = state.actionSettings?.[task]?.prompt?.trim();
+  return value ? "Zusatzwunsch des Nutzers: " + value : "";
 }
 
-function referencePrompt() {
-  if (!state.referencePack.length || !$("useLocalReferences").checked) return "";
-  const readable = state.referencePack.filter((item) => item.status === "ready" && item.content);
-  if (!readable.length) return "";
-  const blocks = readable.map((item) => item.sourceType === "clinic" && item.prompt ? item.prompt : [
-    `### ${item.sourceType === "web" ? "LIVE WEB REFERENCE" : "LOCAL REFERENCE"} · ${item.name}`,
-    item.sourceType === "web" ? `Source URL: ${item.url}` : `Source filename: ${item.name}`,
-    item.content,
-    `### END LOCAL REFERENCE · ${item.name}`,
-  ].join("\n"));
-  return `\n\n[EXPLICITLY ATTACHED LOCAL RADIOLOGY REFERENCE PACK]\nUse only the readable text below as local reference material. Cite the filename when relying on it. Do not claim to have read a metadata-only PDF or binary file.\n${blocks.join("\n\n")}\n[/EXPLICITLY ATTACHED LOCAL RADIOLOGY REFERENCE PACK]`;
+function configTaskIsValid(task) {
+  return Object.prototype.hasOwnProperty.call(ACTION_SETTING_DEFAULTS, task);
 }
 
-function renderClinicCatalog(catalog) {
-  state.clinicCatalog = catalog || { root: null, clinics: [] };
-  const clinics = state.clinicCatalog.clinics || [];
-  const select = $("clinicSelect");
-  select.replaceChildren();
-  for (const clinic of clinics) {
-    const option = document.createElement("option");
-    option.value = clinic.id;
-    option.textContent = clinic.name;
-    select.append(option);
-  }
-  if (clinics.length) {
-    if (!clinics.some((clinic) => clinic.id === state.selectedClinicId)) state.selectedClinicId = clinics[0].id;
-    select.value = state.selectedClinicId;
-  } else {
-    state.selectedClinicId = "";
-  }
-  $("clinicSourceBadge").textContent = clinics.length ? `${clinics.length} Klinik${clinics.length === 1 ? "" : "en"}` : "Keine";
-  $("clinicRootStatus").textContent = state.clinicCatalog.root ? `Ordner: ${state.clinicCatalog.root}` : "Kein Klinikordner";
-  const list = $("clinicSourceItems");
-  list.replaceChildren();
-  const clinic = clinics.find((item) => item.id === state.selectedClinicId);
-  if (!clinic) {
-    const empty = document.createElement("div");
-    empty.className = "clinic-source-empty";
-    empty.textContent = "Keine Klinik ausgewählt oder noch keine PDFs in sources/.";
-    list.append(empty);
-    return;
-  }
-  if (!clinic.sources.length) {
-    const empty = document.createElement("div");
-    empty.className = "clinic-source-empty";
-    empty.textContent = "Keine PDFs in diesem Klinikordner.";
-    list.append(empty);
-    return;
-  }
-  for (const source of clinic.sources) {
-    const node = document.createElement("article");
-    node.className = "clinic-source-item";
-    node.innerHTML = `<div class="clinic-source-item-head"><strong></strong><span class="reference-badge"></span></div><small></small><div class="clinic-source-item-actions"></div>`;
-    node.querySelector("strong").textContent = source.name;
-    node.querySelector(".reference-badge").textContent = source.status === "referenced" ? "Referenziert" : "Neu";
-    node.querySelector("small").textContent = `${source.relativePath} · ${Math.round(source.size / 1024)} KB`;
-    const actions = node.querySelector(".clinic-source-item-actions");
-    const read = document.createElement("button");
-    read.className = "secondary-button";
-    read.type = "button";
-    read.textContent = source.status === "referenced" ? "Erneut lesen" : "Neu lesen";
-    read.addEventListener("click", () => readClinicSource(source));
-    actions.append(read);
-    const attach = document.createElement("button");
-    attach.className = "secondary-button";
-    attach.type = "button";
-    attach.textContent = "Anhängen";
-    attach.disabled = !state.referencePack.some((item) => item.sourceType === "clinic" && item.path === source.path && item.content);
-    attach.addEventListener("click", () => {
-      const item = state.referencePack.find((entry) => entry.sourceType === "clinic" && entry.path === source.path);
-      if (!item) {
-        showToast("PDF zuerst lesen.");
-        return;
-      }
-      $("useLocalReferences").checked = true;
-      updateEvidenceLedger();
-      addActivity("Klinikquelle angehängt", source.name, false);
-      showToast("Klinikquelle wird an die nächste Anfrage angehängt.");
-    });
-    actions.append(attach);
-    list.append(node);
-  }
+function syncMiniConfigPanel() {
+  const task = configTaskIsValid(state.configTask) ? state.configTask : "correction";
+  state.configTask = task;
+  const definition = Object.values(MINI_ACTIONS).find((item) => item.task === task);
+  const settings = state.actionSettings[task] || ACTION_SETTING_DEFAULTS[task];
+  const select = $("miniConfigAction");
+  if (select) select.value = task;
+  text("miniConfigTitle", definition?.label || "Aktion");
+  const visible = $("miniConfigVisible");
+  if (visible) visible.checked = settings.visible !== false;
+  const manualReview = $("miniConfigManualReview");
+  if (manualReview) manualReview.checked = settings.manualReview === true;
+  const prompt = $("miniConfigPrompt");
+  if (prompt) prompt.value = settings.prompt || "";
 }
 
-async function loadClinicSources() {
-  try {
-    renderClinicCatalog(await window.radimoAgent.getClinicSources());
-  } catch (error) {
-    $("clinicRootStatus").textContent = error.message || "Klinikquellen nicht verfügbar";
-  }
+function openMiniConfig(task = state.configTask) {
+  closeMiniContextMenu();
+  if (configTaskIsValid(task)) state.configTask = task;
+  syncMiniConfigPanel();
+  if (state.activePanel !== "miniConfigDrawer") openPanel("miniConfigDrawer");
 }
 
-async function chooseClinicRoot() {
-  try {
-    const catalog = await window.radimoAgent.chooseClinicSourceRoot();
-    if (catalog) {
-      renderClinicCatalog(catalog);
-      addActivity("Klinikordner gewählt", "PDFs liegen je Klinik in sources/", false);
-      showToast("Klinikquellen aktualisiert.");
-    }
-  } catch (error) {
-    $("clinicRootStatus").textContent = error.message || "Klinikordner konnte nicht gewählt werden.";
-  }
-}
-
-async function openClinicRoot() {
-  try {
-    await window.radimoAgent.openClinicSourceRoot();
-  } catch (error) {
-    $("clinicRootStatus").textContent = error.message || "Klinikordner konnte nicht geöffnet werden.";
-  }
-}
-
-async function readClinicSource(source) {
-  $("clinicRootStatus").textContent = `${source.name} wird gelesen…`;
-  try {
-    const item = await window.radimoAgent.readClinicSource({ clinicId: state.selectedClinicId, sourcePath: source.path });
-    if (item.status !== "ready" || !item.content) {
-      addActivity("Klinikquelle nicht lesbar", `${source.name} · ${item.reason || "PDF-Text fehlt"}`, true);
-      showToast("PDF konnte nicht als Text gelesen werden.");
-      renderClinicCatalog(item.catalog);
-      return;
-    }
-    state.referencePack = [...state.referencePack.filter((entry) => entry.path !== item.path), { ...item, sourceType: "clinic" }];
-    renderReferences(state.referencePack);
-    $("useLocalReferences").checked = true;
-    renderClinicCatalog(item.catalog);
-    addActivity("Klinikquelle gelesen", `${item.name} in AGENTS.md registriert`, false);
-    showToast("Quelle gelesen und für die nächste Anfrage bereit.");
-  } catch (error) {
-    $("clinicRootStatus").textContent = error.message || "Klinikquelle konnte nicht gelesen werden.";
-    addActivity("Klinikquelle fehlgeschlagen", $("clinicRootStatus").textContent, true);
-  }
-}
-
-function renderReferences(pack) {
-  state.referencePack = Array.isArray(pack) ? pack : [];
-  const readable = state.referencePack.filter((item) => item.status === "ready" && item.content).length;
-  $("useLocalReferences").disabled = readable === 0;
-  $("clearReferences").disabled = state.referencePack.length === 0;
-  if (!readable) $("useLocalReferences").checked = false;
-  $("referenceBadge").textContent = state.referencePack.length ? `${readable} readable · ${state.referencePack.length - readable} trace-only` : "Not attached";
-  $("referenceStatus").textContent = state.referencePack.length
-    ? `${state.referencePack.length} local reference${state.referencePack.length === 1 ? "" : "s"} selected.`
-    : "No local references selected.";
-  const list = $("referenceItems");
-  list.replaceChildren();
-  for (const item of state.referencePack) {
-    const node = document.createElement("article");
-    node.className = `reference-item ${item.status}`;
-    node.innerHTML = `<div class="reference-item-head"><strong></strong><span></span></div><small></small><div class="reference-preview"></div><div class="reference-item-actions"></div>`;
-    node.querySelector("strong").textContent = item.sourceType === "web" ? item.url : item.name;
-    node.querySelector("span").textContent = item.status === "ready" ? (item.sourceType === "web" ? "Web · verify" : "Readable") : "Trace only";
-    node.querySelector("small").textContent = item.reason || `${item.size} bytes available to the local reference pack.`;
-    node.querySelector(".reference-preview").textContent = item.preview || "No text attached; provide extracted text or an approved local PDF extractor before using it as evidence.";
-    if (item.sourceType === "web" && item.url) {
-      const open = document.createElement("button");
-      open.className = "secondary-button reference-open-button";
-      open.type = "button";
-      open.textContent = "Open in browser";
-      open.addEventListener("click", () => window.radimoAgent.openUrl(item.url));
-      node.querySelector(".reference-item-actions").append(open);
-    }
-    list.append(node);
-  }
-  updateEvidenceLedger();
-}
-
-async function chooseReferences() {
-  try {
-    const pack = await window.radimoAgent.chooseReferences();
-    if (!pack) return;
-    renderReferences(pack);
-    addActivity("Local references ready", `${pack.filter((item) => item.status === "ready").length} readable source(s) selected`, false);
-    showToast("Local reference pack updated.");
-  } catch (error) {
-    $("referenceStatus").textContent = error.message || "Local references could not be selected.";
-    addActivity("Reference selection failed", $("referenceStatus").textContent, true);
-  }
-}
-
-async function fetchReferenceUrl() {
-  const input = $("referenceUrl");
-  const value = input.value.trim();
-  if (!value) return;
-  $("referenceStatus").textContent = "Fetching approved medical page locally…";
-  try {
-    const reference = await window.radimoAgent.fetchReferenceUrl(value);
-    state.referencePack = [...state.referencePack, reference];
-    renderReferences(state.referencePack);
-    input.value = "";
-    addActivity("Medical page fetched", `${reference.status} · ${reference.name}`, false);
-    showToast(reference.status === "ready" ? "Medical reference attached." : "Reference URL recorded without readable text.");
-  } catch (error) {
-    $("referenceStatus").textContent = error.message || "Reference page could not be fetched.";
-    addActivity("Reference fetch failed", $("referenceStatus").textContent, true);
-  }
-}
-
-function clearReferences() {
-  renderReferences([]);
-  addActivity("Local references cleared", "No reference material will be attached", false);
-}
-
-async function captureScreen() {
-  $("screenCaptureStatus").textContent = "Select a region on the screen…";
-  try {
-    const result = await window.radimoAgent.captureScreen();
-    if (!result?.ok) {
-      $("screenCaptureStatus").textContent = "Capture cancelled.";
-      return;
-    }
-    state.screenCapture = result;
-    $("screenCapturePreview").src = result.dataUrl;
-    $("screenCapturePreview").classList.remove("hidden");
-    $("copyScreenCapture").disabled = false;
-    $("useScreenCapture").disabled = false;
-    $("useScreenCapture").checked = false;
-    updateImageAttachmentCapability();
-    $("screenCaptureBadge").textContent = `${result.width} × ${result.height}`;
-    $("screenCaptureStatus").textContent = "Captured locally. Review before copying or sending elsewhere.";
-    addActivity("Screen region captured", `${result.width} × ${result.height} pixels`, false);
-  } catch (error) {
-    $("screenCaptureStatus").textContent = error.message || "Screen capture failed.";
-    addActivity("Screen capture failed", $("screenCaptureStatus").textContent, true);
-  }
-}
-
-async function copyScreenCapture() {
-  if (!state.screenCapture?.dataUrl) return;
-  try {
-    await window.radimoAgent.copyScreenCapture(state.screenCapture.dataUrl);
-    $("screenCaptureStatus").textContent = "Image copied to the clipboard.";
-    showToast("Screen capture copied.");
-  } catch (error) {
-    $("screenCaptureStatus").textContent = error.message || "Image could not be copied.";
-  }
-}
-
-function extractEvidenceSources(text) {
-  const values = [];
-  const add = (value) => { if (value && !values.includes(value)) values.push(value); };
-  for (const match of String(text || "").matchAll(/https?:\/\/[^\s)<>]+/gi)) add(match[0].replace(/[.,;]+$/, ""));
-  for (const match of String(text || "").matchAll(/\b10\.\d{4,9}\/[A-Za-z0-9][^\s)<>]+/gi)) add(`doi:${match[0].replace(/[.,;]+$/, "")}`);
-  return values.slice(0, 12);
-}
-
-function updateEvidenceLedger(responseText = "") {
-  const ledger = $("evidenceLedger");
-  const localAttached = $("useLocalReferences").checked && state.referencePack.some((item) => item.status === "ready" && item.content);
-  const liveRequested = $("evidenceMode").checked;
-  const sources = [];
-  if (localAttached) {
-    for (const item of state.referencePack.filter((entry) => entry.status === "ready" && entry.content)) sources.push(item.sourceType === "web" ? item.url : `Local · ${item.name}`);
-  }
-  for (const source of extractEvidenceSources(responseText)) sources.push(source);
-  const uniqueSources = [...new Set(sources)];
-  if (liveRequested && !uniqueSources.length) {
-    ledger.classList.remove("hidden");
-    $("evidenceState").textContent = "Keine Quelle";
-    $("evidenceSources").textContent = "Prüfung nötig";
-    return;
-  }
-  if (uniqueSources.length) {
-    ledger.classList.remove("hidden");
-    $("evidenceState").textContent = `${uniqueSources.length} Quelle${uniqueSources.length === 1 ? "" : "n"}`;
-    $("evidenceSources").replaceChildren();
-    for (const source of uniqueSources) {
-      const item = document.createElement("span");
-      item.className = "evidence-source-chip";
-      item.textContent = source;
-      $("evidenceSources").append(item);
-    }
-    return;
-  }
-  $("evidenceState").textContent = "Keine";
-  $("evidenceSources").textContent = "";
-  ledger.classList.add("hidden");
-}
-
-function setAssistantMode(mode) {
-  const next = MODE_DESCRIPTIONS[mode] ? mode : "discussion";
-  state.assistantMode = next;
-  $("assistantMode").value = next;
-  $("modeDescription").textContent = MODE_DESCRIPTIONS[next];
-  const placeholders = {
-    discussion: "Frage zum Fall oder nächsten Denkschritt…",
-    report: "Befund für Struktur und Beurteilung eingeben…",
-    correction: "Befundtext für das Lektorat eingeben…",
-    differential: "Befunde eingeben und Differenzialdiagnose anfordern…",
-    conclusion: "Befunde eingeben und Beurteilung anfordern…",
+function saveMiniConfig() {
+  const task = configTaskIsValid(state.configTask) ? state.configTask : "correction";
+  state.actionSettings[task] = {
+    visible: Boolean($("miniConfigVisible")?.checked),
+    prompt: String($("miniConfigPrompt")?.value || "").trim().slice(0, 1200),
+    manualReview: Boolean($("miniConfigManualReview")?.checked),
   };
-  $("composer").placeholder = placeholders[next];
-  if ($("radarMode")) $("radarMode").textContent = $("assistantMode").selectedOptions[0]?.textContent || next;
+  saveActionSettings();
+  renderActionVisibility();
+  syncMiniConfigPanel();
+  const definition = Object.values(MINI_ACTIONS).find((item) => item.task === task);
+  helperSetStatus((definition?.label || "Aktion") + " gespeichert.", "Gespeichert");
 }
 
-function setWritingProfile(profile) {
-  state.writingProfile = profile === "off" ? "off" : "german-radiology";
-  $("writingProfile").value = state.writingProfile;
-    addActivity("Profil", state.writingProfile === "off" ? "Original" : "Deutsch / Latein", false);
+function resetMiniConfig() {
+  const task = configTaskIsValid(state.configTask) ? state.configTask : "correction";
+  state.actionSettings[task] = { ...ACTION_SETTING_DEFAULTS[task] };
+  saveActionSettings();
+  renderActionVisibility();
+  syncMiniConfigPanel();
+  helperSetStatus("Aktion auf Standard zurückgesetzt.", "Gespeichert");
 }
 
-async function loadGuidanceStatus() {
-  try {
-    const status = await window.radimoAgent.getGuidanceStatus();
-    $("guidanceBadge").textContent = status.source === "local" ? "Lokal" : "Standard";
-    $("guidanceStatus").textContent = `${status.terminologyCount} Begriffe · ${status.phraseCount} Phrasen`;
-  } catch (error) {
-    $("guidanceBadge").textContent = "Fehler";
-    $("guidanceStatus").textContent = error.message || "Nicht verfügbar";
+function isVisibleFocusable(node) {
+  return Boolean(node?.isConnected && !node.disabled && !node.closest?.(".hidden"));
+}
+
+function closeMiniContextMenu({ restoreFocus = true } = {}) {
+  $("miniContextMenu")?.classList.add("hidden");
+  $(state.contextMenuTarget || "miniCore")?.setAttribute("aria-expanded", "false");
+  const returnFocus = state.contextMenuReturnFocus;
+  state.contextMenuTarget = "";
+  state.contextMenuReturnFocus = null;
+  if (restoreFocus && isVisibleFocusable(returnFocus)) returnFocus.focus();
+}
+
+function runMiniContextTarget(targetId) {
+  closeMiniContextMenu();
+  switch (targetId) {
+    case "miniTargetCell":
+      void miniCaptureField();
+      break;
+    case "miniWrite":
+      void runAgentAction("write");
+      break;
+    case "miniDictate":
+      void miniStartDictation();
+      break;
+    case "miniCorrection":
+      void runAgentAction("correction");
+      break;
+    case "miniInsert":
+      void (state.pendingDictationText.trim() ? insertPendingDictation() : insertReviewResult());
+      break;
+    case "miniStructure":
+      void runAgentAction("structure");
+      break;
+    case "miniAssessment":
+      void runAgentAction("assessment");
+      break;
+    case "miniReview":
+      if (state.lastAgentResult.trim() || $("miniReviewText")?.value.trim()) openPanel("miniReviewDrawer");
+      else helperSetStatus("Noch kein Ergebnis zum Prüfen vorhanden.", "Leer");
+      break;
+    case "miniEditorToggle":
+      openPanel("miniEditorDrawer");
+      break;
+    case "miniContextToggle":
+      openContext();
+      break;
+    case "miniChatToggle":
+      openPanel("miniChatDrawer");
+      break;
+    default:
+      break;
   }
 }
 
-async function loadTemplateStatus() {
-  try {
-    const status = await window.radimoAgent.getTemplateStatus();
-    const select = $("templateSelect");
-    select.replaceChildren();
-    for (const template of status.templates || []) {
-      const option = document.createElement("option");
-      option.value = template.id;
-      option.textContent = template.label;
-      select.append(option);
-    }
-    $("templateStatus").textContent = `${status.source === "local" ? "Local templates" : "Generic templates"} · ${status.templates?.length || 0} available`;
-  } catch (error) {
-    $("templateStatus").textContent = error.message || "Templates unavailable.";
+function showMiniContextMenu(event, targetId = "miniCore") {
+  const menu = $("miniContextMenu");
+  const definition = MINI_ACTIONS[targetId] || MINI_ACTIONS.miniCore;
+  if (!menu) return;
+  event?.preventDefault();
+  event?.stopPropagation();
+  const invoker = targetId === "miniTargetCell" ? $("miniCapture") : event?.currentTarget?.nodeType === Node.ELEMENT_NODE ? event.currentTarget : $(targetId) || document.activeElement;
+  state.contextMenuReturnFocus = isVisibleFocusable(invoker) ? invoker : null;
+  state.contextMenuTarget = targetId;
+  $(targetId)?.setAttribute("aria-haspopup", "menu");
+  $(targetId)?.setAttribute("aria-controls", "miniContextMenu");
+  $(targetId)?.setAttribute("aria-expanded", "true");
+  text("miniContextMenuTitle", definition.label);
+  const run = $("miniContextRun");
+  if (run) {
+    run.classList.toggle("hidden", !definition.run);
+    run.textContent = definition.task ? "Ausführen" : definition.label + " öffnen";
   }
-}
-
-async function insertTemplate() {
-  const template = await window.radimoAgent.getTemplate($("templateSelect").value);
-  if (!template?.content) return;
-  const composer = $("composer");
-  composer.value = [composer.value.trim(), template.content.trim()].filter(Boolean).join("\n\n");
-  composer.dispatchEvent(new Event("input"));
-  composer.focus();
-  addActivity("Template inserted", `${template.label} · review before sending`, false);
-}
-
-async function importGuidance() {
-  try {
-    const status = await window.radimoAgent.importGuidanceProfile();
-    if (!status) return;
-    await loadGuidanceStatus();
-    addActivity("Writing profile imported", `${status.terminologyCount} terms · ${status.phraseCount} phrases`, false);
-    showToast("German radiology profile imported.");
-  } catch (error) {
-    $("guidanceStatus").textContent = error.message || "Profile import failed.";
-    addActivity("Writing profile import failed", $("guidanceStatus").textContent, true);
+  const targetMenu = targetId === "miniTargetCell";
+  const selection = $("miniContextSelection");
+  if (selection) selection.classList.toggle("hidden", !targetMenu);
+  const copy = $("miniContextCopy");
+  if (copy) copy.classList.toggle("hidden", !targetMenu || !Boolean(currentHelperText() || reviewText()));
+  const reset = $("miniContextReset");
+  if (reset) {
+    const canReset = hasLockedTarget() || Boolean(currentHelperText() || state.lastAgentResult.trim() || $("miniReviewText")?.value.trim());
+    reset.classList.toggle("hidden", !targetMenu || !canReset);
+    reset.textContent = hasLockedTarget() ? "Arbeitsfeld lösen" : "Textquelle leeren";
   }
-}
-
-async function exportGuidance() {
-  try {
-    const result = await window.radimoAgent.exportGuidanceProfile();
-    if (result?.filePath) showToast("Writing profile exported.");
-  } catch (error) {
-    $("guidanceStatus").textContent = error.message || "Profile export failed.";
+  const configure = $("miniContextConfigure");
+  const canConfigure = definition.kind === "core" || Boolean(definition.configurable);
+  if (configure) {
+    configure.classList.toggle("hidden", !canConfigure);
+    configure.textContent = definition.kind === "core" ? "Aktionen anpassen" : "Prompt & Anzeige";
   }
-}
-
-async function openGuidanceFolder() {
-  try {
-    await window.radimoAgent.openGuidanceFolder();
-    showToast("Profile folder opened.");
-  } catch (error) {
-    $("guidanceStatus").textContent = error.message || "Profile folder could not be opened.";
+  const visibility = $("miniContextVisibility");
+  const canToggle = Boolean(definition.hideable && definition.task);
+  if (visibility) {
+    visibility.classList.toggle("hidden", !canToggle);
+    visibility.textContent = state.actionSettings?.[definition.task]?.visible === false ? "Aktion einblenden" : "Aktion ausblenden";
   }
+  const quit = $("miniContextQuit");
+  if (quit) quit.classList.toggle("hidden", definition.kind !== "core");
+  menu.classList.remove("hidden");
+  const core = $("miniCore");
+  const fallback = core?.getBoundingClientRect();
+  const x = Number.isFinite(event?.clientX) ? event.clientX : (fallback ? fallback.right + 8 : 8);
+  const y = Number.isFinite(event?.clientY) ? event.clientY : (fallback ? fallback.top + 8 : 8);
+  const menuRect = menu.getBoundingClientRect();
+  const width = Math.min(214, Math.max(176, menuRect.width || window.innerWidth - 16));
+  menu.style.left = String(Math.max(8, Math.min(x, window.innerWidth - width - 8))) + "px";
+  menu.style.top = String(Math.max(8, y)) + "px";
+  const placed = menu.getBoundingClientRect();
+  menu.style.left = String(Math.max(8, Math.min(x, window.innerWidth - placed.width - 8))) + "px";
+  menu.style.top = String(Math.max(8, Math.min(y, window.innerHeight - placed.height - 8))) + "px";
+  [run, selection, copy, reset, configure, $("miniContextSettings"), $("miniContextClose"), quit]
+    .find((node) => node && !node.classList.contains("hidden"))?.focus();
 }
 
-function contextReportText() {
-  if (!state.contextReport) return "";
-  const report = state.contextReport;
-  const lines = [
-    "RadimoAgent context finder beta report",
-    `Generated: ${report.generatedAt}`,
-    `Anchor: ${report.source.path}`,
-    `Strategy: ${report.strategy}`,
-    "",
-    "Requested report context: Fragestellung, Anforderung, Befund, Beurteilung",
-    "",
-  ];
-  for (const item of report.items) lines.push(`## ${item.relation} · ${item.section} · ${item.name}`, `Path: ${item.path}`, "", item.content || item.preview, "", "---", "");
-  return lines.join("\n");
-}
-
-function correctionPrompt() {
-  const selected = $("selectedField").value.trim();
-  return `Correct this selected radiology/medical field for dictation artifacts, spelling, grammar, and clarity only. Preserve every medical fact, value, negation, uncertainty, and anatomical location. Do not add a diagnosis or recommendation. Return only the corrected field text, followed by one short review note if anything is ambiguous.\n\nSelected field:\n${selected}`;
-}
-
-async function startNewDiscussion() {
-  try {
-    await window.radimoAgent.newDiscussion({ model: state.selectedModel, medicalGate: $("medicalGate").checked, radiologyMode: $("radiologyMode").checked, writingProfile: state.writingProfile });
-    if (window.radimoAgent.newWorkflowCase) {
-      const workflow = await window.radimoAgent.newWorkflowCase({ origin: "desktop", fieldType: "befund", fieldLabel: "Befund" });
-      applyWorkflowState(workflow);
-    }
-    state.messages = [];
-    state.lastAgentText = "";
-    $("messages").replaceChildren();
-    $("messages").innerHTML = `<div class="empty-state"><strong>Fallfrage eingeben</strong></div>`;
-    updateEvidenceLedger();
-    setAssistantMode("discussion");
-    setIslandState("Bereit");
-    addActivity("Neuer Fall", "Diskussion ist bereit", false);
-    showToast("Neuer Fall gestartet.");
-  } catch (error) {
-    addActivity("Fall konnte nicht starten", error.message || "Lokaler Agent nicht verfügbar", true);
-    showToast(error.message || "Discussion could not start.");
+function handleMiniContextMenuKeydown(event) {
+  const menu = $("miniContextMenu");
+  if (!menu || menu.classList.contains("hidden")) return false;
+  const items = [...menu.querySelectorAll('[role="menuitem"]')].filter((node) => !node.classList.contains("hidden") && !node.disabled);
+  if (!items.length) return false;
+  const current = items.indexOf(document.activeElement);
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeMiniContextMenu();
+    return true;
   }
-}
-
-async function send() {
-  const input = $("composer");
-  const text = input.value.trim();
-  if (!text) return;
-  input.value = "";
-  input.style.height = "auto";
-  addMessage("user", text);
-  addMessage("agent", "Luna arbeitet…");
-  state.lastAgentText = "";
-  $("copyLastResponse").disabled = true;
-  $("saveCorrectionDraft").disabled = true;
-  setIslandState("Thinking");
-  addActivity("Luna arbeitet", "Das gewählte Modell prüft die Anfrage", true);
-  try {
-    const attachedContext = contextPrompt();
-    const attachedReferences = referencePrompt();
-    const attachedImage = $("useScreenCapture").checked && state.screenCapture?.path ? state.screenCapture.path : null;
-    if (attachedContext) addActivity("Kontext angehängt", "Ausgewählte Nachbarbefunde einbezogen", false);
-    if (attachedReferences) addActivity("Quellen angehängt", "Nur lesbare, ausgewählte Texte einbezogen", false);
-    if (attachedImage) addActivity("Bild angehängt", "Ausgewählte lokale Aufnahme gesendet", false);
-    updateEvidenceLedger();
-    await window.radimoAgent.sendTurn({
-      text: `${text}${attachedContext}${attachedReferences}`,
-      model: state.selectedModel,
-      effort: "medium",
-      medicalGate: $("medicalGate").checked,
-      radiologyMode: $("radiologyMode").checked,
-      evidenceMode: $("evidenceMode").checked,
-      assistantMode: state.assistantMode,
-      writingProfile: state.writingProfile,
-      origin: "desktop",
-      fieldType: state.workflow?.fieldType || "befund",
-      fieldLabel: state.workflow?.fieldLabel || "Befund",
-      imagePath: attachedImage,
-    });
-  } catch (error) {
-    $("messages").lastElementChild.lastElementChild.textContent = error.message || "Anfrage konnte nicht gestartet werden.";
-    setIslandState("Prüfen");
-    addActivity("Anfrage fehlgeschlagen", error.message || "Anfrage konnte nicht gestartet werden", true);
+  if (event.key === "Tab") {
+    event.preventDefault();
+    closeMiniContextMenu();
+    return true;
   }
-}
-
-function renderContext(report) {
-  state.contextReport = report;
-  $("contextSource").textContent = report ? report.source.path : "The data connector is intentionally local-first until the source and permissions are confirmed.";
-  $("saveContext").disabled = !report;
-  $("copyContext").disabled = !report;
-  $("useContext").disabled = !report;
-  $("copySelectedField").disabled = !report?.items?.some((item) => item.relation === "selected" && item.content);
-  $("prepareCorrection").disabled = !report?.items?.some((item) => item.relation === "selected" && item.content);
-  const selected = report?.items?.find((item) => item.relation === "selected");
-  $("selectedField").value = selected?.content || selected?.preview || "";
-  if (!report) $("useContext").checked = false;
-  const list = $("contextItems");
-  list.replaceChildren();
-  if (!report) return;
-  for (const item of report.items) {
-    const node = document.createElement("article");
-    node.className = `context-item${item.relation === "selected" ? " selected" : ""}`;
-    node.innerHTML = `<div class="context-item-head"><strong></strong><span></span></div><small></small><div class="context-preview"></div>`;
-    node.querySelector("strong").textContent = `${item.relation} · ${item.section}`;
-    node.querySelector("span").textContent = `${item.size} bytes`;
-    node.querySelector("small").textContent = item.name;
-    node.querySelector(".context-preview").textContent = item.preview;
-    list.append(node);
+  if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End") {
+    event.preventDefault();
+    const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+    items[next].focus();
+    return true;
   }
-}
-
-async function chooseContext() {
-  $("contextStatus").textContent = "Quelldatei wählen…";
-  addActivity("Kontextfinder geöffnet", "Warte auf Befunddatei", true);
-  try {
-    const report = await window.radimoAgent.chooseContextSource();
-    if (!report) {
-      $("contextStatus").textContent = "Keine Quelle gewählt.";
-      return;
-    }
-    renderContext(report);
-    $("contextStatus").textContent = `${report.items.length} nearby files collected.`;
-    addActivity("Kontext gesammelt", "Zwei darüber · Auswahl · eine darunter", false);
-    showToast("Kontext ist bereit.");
-  } catch (error) {
-    $("contextStatus").textContent = error.message || "Context scan failed.";
-    addActivity("Context scan failed", $("contextStatus").textContent, true);
+  if ((event.key === "Enter" || event.key === " ") && current >= 0) {
+    event.preventDefault();
+    items[current].click();
+    return true;
   }
+  return false;
 }
 
-async function saveContext() {
-  if (!state.contextReport) return;
-  try {
-    const result = await window.radimoAgent.saveContextReport(state.contextReport);
-    if (result?.filePath) {
-      $("contextStatus").textContent = `Saved ${result.bytes} bytes.`;
-      addActivity("Report captured", result.filePath, false);
-      showToast("Context report saved.");
-    }
-  } catch (error) {
-    $("contextStatus").textContent = error.message || "Report could not be saved.";
-  }
+function toggleMiniContextVisibility() {
+  const definition = MINI_ACTIONS[state.contextMenuTarget];
+  if (!definition?.task || !definition.hideable) return;
+  const settings = state.actionSettings[definition.task] || { ...ACTION_SETTING_DEFAULTS[definition.task] };
+  settings.visible = settings.visible === false;
+  state.actionSettings[definition.task] = settings;
+  saveActionSettings();
+  renderActionVisibility();
+  closeMiniContextMenu();
+  helperSetStatus(settings.visible ? definition.label + " eingeblendet." : definition.label + " ausgeblendet.", "Gespeichert");
 }
 
-async function copyContext() {
-  if (!state.contextReport) return;
-  try {
-    await navigator.clipboard.writeText(contextReportText());
-    $("contextStatus").textContent = "Report copied to clipboard.";
-    addActivity("Report copied", "Context beta capture is ready to paste", false);
-    showToast("Context report copied.");
-  } catch (error) {
-    $("contextStatus").textContent = error.message || "Report could not be copied.";
-  }
+function applyGermanUi() {
+  document.documentElement.lang = "de";
+  document.title = "RadIMO – ReportHalo Minihelfer";
 }
-
-async function copySelectedField() {
-  const content = $("selectedField").value.trim();
-  if (!content) return;
-  try {
-    await navigator.clipboard.writeText(content);
-    $("contextStatus").textContent = "Selected field copied to clipboard.";
-    showToast("Selected field copied.");
-  } catch (error) {
-    $("contextStatus").textContent = error.message || "Selected field could not be copied.";
-  }
-}
-
-function prepareCorrection() {
-  setAssistantMode("correction");
-  $("composer").value = correctionPrompt();
-  $("composer").focus();
-  $("correctionStatus").textContent = "Correction prompt prepared; review it before sending.";
-  addActivity("Correction prepared", "Selected field is ready for a guarded language correction", false);
-}
-
-async function copyLastResponse() {
-  if (!state.lastAgentText.trim()) return;
-  try {
-    await navigator.clipboard.writeText(state.lastAgentText);
-    $("correctionStatus").textContent = "Latest AI response copied. Review it before use.";
-    showToast("AI response copied.");
-  } catch (error) {
-    $("correctionStatus").textContent = error.message || "AI response could not be copied.";
-  }
-}
-
-async function saveCorrectionDraft() {
-  if (!state.lastAgentText.trim() || !state.contextReport?.source?.path) return;
-  try {
-    const result = await window.radimoAgent.saveCorrectionDraft({ sourcePath: state.contextReport.source.path, content: state.lastAgentText });
-    if (result?.filePath) {
-      $("correctionStatus").textContent = `Reviewed draft saved: ${result.filePath}`;
-      addActivity("Reviewed draft saved", "The source file was not overwritten", false);
-      showToast("Reviewed draft saved.");
-    }
-  } catch (error) {
-    $("correctionStatus").textContent = error.message || "Draft could not be saved.";
-  }
-}
-
-async function copyDiagnostics() {
-  try {
-    const result = await window.radimoAgent.copyDiagnostics();
-    $("logPath").textContent = result?.path ? `Copied. Local log: ${result.path}` : "Diagnostics copied.";
-    showToast("Diagnostics copied to clipboard.");
-  } catch (error) {
-    $("loginStatus").textContent = error.message || "Diagnostics could not be copied.";
-  }
-}
-
-async function testConnection() {
-  $("loginStatus").textContent = "Checking Windows proxy and auth endpoint…";
-  try {
-    const result = await window.radimoAgent.testConnection();
-    const status = result.authEndpoint?.reachable ? `HTTP ${result.authEndpoint.status}` : result.authEndpoint?.error || "unreachable";
-    const override = result.proxyOverrideConfigured ? " · app proxy override: configured" : "";
-    if (result.proxyEndpoint && !$("proxyOverride").value.trim()) $("proxyOverride").value = result.proxyEndpoint;
-    const challenge = result.authEndpoint?.proxyAuthenticate ? ` · challenge: ${result.authEndpoint.proxyAuthenticate}` : "";
-    $("loginStatus").textContent = `Proxy: ${result.proxyRules || "not reported"} · auth.openai.com: ${status}${challenge}${override}`;
-  } catch (error) {
-    $("loginStatus").textContent = error.message || "Connection test failed.";
-  }
-}
-
-async function applyProxy() {
-  const value = $("proxyOverride").value.trim();
-  $("loginStatus").textContent = value ? "Applying proxy and restarting the login service…" : "Clearing proxy override and restarting…";
-  try {
-    const result = await window.radimoAgent.setProxy({
-      url: value,
-      username: $("proxyUsername").value,
-      password: $("proxyPassword").value,
-    });
-    $("loginStatus").textContent = result.configured
-      ? "Proxy applied. Click Open browser sign-in to retry."
-      : "Proxy override cleared. Click Open browser sign-in to retry.";
-  } catch (error) {
-    $("loginStatus").textContent = error.message || "Proxy could not be applied.";
-  }
-}
-
-function openContext() { $("contextDrawer").classList.remove("hidden"); }
-function closeContext() { $("contextDrawer").classList.add("hidden"); }
-function toggleMinimap() { $("minimap").classList.toggle("minimap-collapsed"); }
 
 function helperFieldLabel() {
   return HELPER_FIELD_LABELS[state.helperFieldType] || HELPER_FIELD_LABELS.befund;
@@ -871,14 +371,6 @@ function helperFieldLabel() {
 
 function setHelperFieldType(value) {
   state.helperFieldType = HELPER_FIELD_LABELS[value] ? value : "befund";
-  $("helperFieldType").value = state.helperFieldType;
-  $("helperTitle").textContent = helperFieldLabel();
-  $("helperArtifactType").textContent = state.helperFieldType === "beurteilung" ? "Zusammenfassung" : HELPER_FIELD_LABELS[state.helperFieldType];
-  if ($("helperCreateBeurteilung")) {
-    const isFinding = state.helperFieldType === "befund";
-    $("helperCreateBeurteilung").disabled = !isFinding;
-    if (!isFinding) $("helperCreateBeurteilung").checked = false;
-  }
 }
 
 function inferHelperFieldType(target) {
@@ -890,437 +382,1888 @@ function inferHelperFieldType(target) {
   return "befund";
 }
 
-function extractHelperFieldText(text) {
-  const source = String(text || "").trim();
-  if (!source) return "";
-  const label = state.helperFieldType;
-  const headings = {
-    befund: ["Befund", "Findings"],
-    beurteilung: ["Beurteilung", "Zusammenfassung", "Impression", "Conclusion", "Assessment"],
-    fragestellung: ["Fragestellung", "Clinical question"],
-    anforderung: ["Anforderung", "Indikation", "Request"],
-  }[label];
-  let result = source;
-  if (headings) {
-    const headingPattern = headings.map((item) => item.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
-    const nextHeading = "Befund|Beurteilung|Zusammenfassung|Fragestellung|Anforderung|Findings|Impression|Conclusion|Assessment|Clinical question|Indication|Request";
-    const match = source.match(new RegExp(`(?:^|\\n)\\s*(?:#{1,4}\\s*)?(?:${headingPattern})\\s*:?\\s*\\n?([\\s\\S]*?)(?=\\n\\s*#{0,4}\\s*(?:${nextHeading})\\s*:?(?:\\n|$)|$)`, "i"));
-    if (match?.[1]?.trim()) result = match[1].trim();
-  }
-  if (state.helperTask === "correction") result = result.replace(/\n\s*(?:PRÜFNOTIZ|REVIEW NOTE)\s*:?\s*[\s\S]*$/i, "").trim();
-  return result;
+function currentHelperText() {
+  return String(state.helperSourceText || state.pendingDictationText || "").trim();
 }
 
-function helperTransferText() {
-  return extractHelperFieldText($("helperResult").value);
+function hasLockedTarget() {
+  return Boolean(state.fieldLocked && state.focusedTarget?.windowHandle);
+}
+
+function sameTargetIdentity(left, right) {
+  if (!left?.windowHandle || !right?.windowHandle || String(left.windowHandle) !== String(right.windowHandle)) return false;
+  for (const key of ["processId", "controlWindowHandle", "automationId", "controlType", "runtimeId"]) {
+    if (left[key] && right[key] && String(left[key]) !== String(right[key])) return false;
+  }
+  return true;
+}
+
+function targetSnapshot() {
+  return hasLockedTarget() ? { ...state.focusedTarget } : null;
+}
+
+function setMiniWorkingState(working) {
+  state.working = Boolean(working);
+  const core = $("miniCore");
+  core?.classList.toggle("is-working", state.working);
+  core?.setAttribute("aria-label", state.working ? "ReportHalo arbeitet · hier zum Verschieben ziehen" : state.connectionOnline ? "ReportHalo bereit · hier zum Verschieben ziehen" : "ReportHalo offline · hier zum Verschieben ziehen");
+  core?.setAttribute("title", state.working ? "ReportHalo arbeitet · zum Verschieben ziehen" : "ReportHalo verschieben");
+  text("miniCoreStatus", state.working ? "ReportHalo arbeitet. Zum Verschieben am Kern ziehen." : "ReportHalo ist bereit. Zum Verschieben am Kern ziehen.");
+  document.body.dataset.miniState = state.working ? "working" : "ready";
+}
+
+function setMiniConnectionState(online) {
+  state.connectionOnline = Boolean(online);
+  const core = $("miniCore");
+  core?.classList.toggle("is-online", state.connectionOnline);
+  core?.classList.toggle("is-offline", !state.connectionOnline);
+  if (!state.working) {
+    core?.setAttribute("aria-label", state.connectionOnline ? "ReportHalo bereit · hier zum Verschieben ziehen" : "ReportHalo offline · hier zum Verschieben ziehen");
+    core?.setAttribute("title", state.connectionOnline ? "ReportHalo verschieben" : "ReportHalo offline · Einstellungen öffnen");
+    text("miniCoreStatus", state.connectionOnline ? "ReportHalo ist bereit. Zum Verschieben am Kern ziehen." : "ReportHalo ist offline. Einstellungen über das Schnellmenü öffnen.");
+  }
 }
 
 function helperSetStatus(message, stateLabel = "Bereit") {
-  $("helperStatus").textContent = message;
-  $("helperState").textContent = stateLabel;
-  $("helperCoreStatus").textContent = stateLabel;
+  text("miniHelperStatus", stateLabel);
+  text("miniHelperHint", message || "Arbeitsfeld aktivieren.");
+  text("miniPreview", state.pendingDictationText.trim() || currentHelperText() || "Arbeitsfeld aktivieren.");
+  const tone = /denken|aufnahme|transkription|ersetzen|ergänzen|einfügen/i.test(stateLabel) ? "working" : /text bereit|einfügen bereit/i.test(stateLabel) ? "source" : /verifiziert|gespeichert|kopiert|chat|bereit/i.test(stateLabel) ? "success" : /prüfung|fehlt|unklar|keine auswahl|kein text|eingang|anmeldung|nicht verfügbar/i.test(stateLabel) ? "warning" : "ready";
+  const feedback = $("miniFeedback");
+  feedback?.setAttribute("data-state", stateLabel);
+  feedback?.setAttribute("data-tone", tone);
+  document.body.dataset.miniStatus = tone;
+  renderMiniTarget();
+  setMiniInsertState();
 }
 
-function updateFieldLockUi() {
-  const target = state.focusedTarget;
-  const locked = Boolean(state.fieldLocked && target?.windowHandle);
-  $("helperLockStatus").textContent = locked ? `Gesperrt · ${target.title || target.controlType || "aktives Feld"}` : "Kein Feld gesperrt";
-  $("helperLockField").disabled = locked;
-  $("helperReleaseField").disabled = !locked;
-  $("helperTransfer").disabled = !locked || !$("helperInput").value.trim();
-  $("helperWriteBack").disabled = !$("helperResult").value.trim() || !target?.windowHandle;
-  if ($("radarTarget")) $("radarTarget").textContent = locked ? (target.title || target.controlType || "RIS-Feld gesperrt") : "Kein RIS-Feld gesperrt";
-  if ($("navTarget")) $("navTarget").textContent = locked ? (target.title || target.controlType || "RIS-Feld gesperrt") : "RIS-Feld · manuell";
+function panelKey(panelId) {
+  return panelId ? (PANEL_KEYS[panelId] || "base") : "base";
 }
 
-async function lockFocusedField() {
-  $("helperCard").classList.add("helper-card-open");
-  await window.radimoAgent.setHelperFocusable(false);
-  try {
-    const focused = await window.radimoAgent.readFocusedField({ selectionOnly: true });
-    if (!focused?.ok || !focused.windowHandle) {
-      helperSetStatus("Kein bearbeitbares Feld gefunden. Cursor in das Befundfeld setzen und erneut versuchen.", "Nicht gesperrt");
-      return;
-    }
-    state.focusedTarget = { ...focused, replaceAll: false };
-    setHelperFieldType(inferHelperFieldType(focused));
-    state.fieldLocked = true;
-    updateFieldLockUi();
-    helperSetStatus("Feld gesperrt. Im Diktierfeld sprechen und bearbeiten; Übertragung bleibt ausdrücklich.", "Feld gesperrt");
-  } catch (error) {
-    helperSetStatus(error.message || "Das Feld konnte nicht gesperrt werden.", "Nicht gesperrt");
-  } finally {
-    await window.radimoAgent.setHelperFocusable(true);
+function isWorkspacePanel(panelId = state.activePanel) {
+  return panelId === "miniWorkspaceDrawer";
+}
+
+function isChatVisible(panelId = state.activePanel) {
+  return isWorkspacePanel(panelId) || panelId === "miniChatDrawer";
+}
+
+function normalizedPanelId(panelId) {
+  return panelId === "miniEditorDrawer" || panelId === "miniChatDrawer" ? "miniWorkspaceDrawer" : panelId;
+}
+
+const PANEL_CONTROL_IDS = {
+  editor: "miniEditorToggle",
+  context: "miniContextToggle",
+  chat: "miniChatToggle",
+  review: "miniReview",
+};
+
+function syncPanelControls() {
+  const activeKey = panelKey(state.activePanel);
+  const workspaceOpen = isWorkspacePanel();
+  const labels = { editor: "Textquelle", context: "Kontext", chat: "Chat", review: "Ergebnis" };
+  for (const [key, id] of Object.entries(PANEL_CONTROL_IDS)) {
+    const button = $(id);
+    if (!button) continue;
+    const active = workspaceOpen ? key === "editor" || key === "chat" : activeKey === key;
+    const label = labels[key] || key;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-expanded", String(active));
+    button.title = `${label} ${active ? "schließen" : "öffnen"}`;
+    button.setAttribute("aria-label", button.title);
   }
 }
 
-function releaseFocusedField() {
-  state.fieldLocked = false;
-  state.focusedTarget = null;
-  updateFieldLockUi();
-  helperSetStatus("Feld freigegeben. Das Diktierfeld bleibt lokal.", "Freigegeben");
-}
-
-function discardDictationBox() {
-  $("helperInput").value = "";
-  updateFieldLockUi();
-  helperSetStatus("Diktierfeld geleert.", "Verworfen");
-}
-
-async function transferDictationBox() {
-  const text = $("helperInput").value.trim();
-  if (!text || !state.fieldLocked || !state.focusedTarget?.windowHandle) return;
-  helperSetStatus("Diktat wird in das gesperrte Feld übertragen…", "Übertragung");
-  try {
-    const response = await window.radimoAgent.writeFocusedField({ text, target: { ...state.focusedTarget, replaceAll: false } });
-    if (response?.ok) helperSetStatus("Text übertragen. Das Diktierfeld bleibt bis zum Verwerfen erhalten.", "Übertragen");
-    else helperSetStatus(`Übertragung gestoppt: ${response?.error || "Ziel geändert"}. Feld erneut sperren.`, "Prüfung nötig");
-  } catch (error) {
-    helperSetStatus(error.message || "Diktatübertragung fehlgeschlagen.", "Prüfung nötig");
-  }
-}
-
-async function helperCapture() {
-  $("helperCard").classList.add("helper-card-open");
-  // Keep the orb click from taking keyboard focus away from the source app.
-  await window.radimoAgent.setHelperFocusable(false);
-  try {
-    const focused = await window.radimoAgent.readFocusedField({ selectionOnly: true });
-    if (focused?.ok && typeof focused.text === "string" && focused.text.trim()) {
-      state.focusedTarget = focused;
-      setHelperFieldType(inferHelperFieldType(focused));
-      $("helperInput").value = focused.text;
-      state.helperTask = "ask";
-      $("helperWriteBack").disabled = !focused.windowHandle;
-      updateFieldLockUi();
-      helperSetStatus(`Fokussiertes Feld über ${focused.strategy} erfasst. Vor der Anfrage prüfen.`, "Feld erfasst");
-      return;
-    }
-    const text = (await window.radimoAgent.readClipboard()).trim();
-    if (!text) {
-      helperSetStatus("Zwischenablage leer. Text in der anderen Anwendung markieren, Strg+C drücken und dann Erfassen wählen.", "Warten");
-      return;
-    }
-    $("helperInput").value = text;
-    state.helperTask = "ask";
-    helperSetStatus(`${text.length} Zeichen aus der Zwischenablage erfasst.`, "Erfasst");
-  } catch (error) {
-    helperSetStatus(error.message || "Zwischenablage konnte nicht gelesen werden.", "Prüfung nötig");
-  }
-}
-
-function helperPrepareFix() {
-  state.helperTask = "correction";
-  $("helperCard").classList.add("helper-card-open");
-  window.radimoAgent.setHelperFocusable(true);
-  helperSetStatus("Lektorat aktiviert: nur Sprache und Diktatfehler; medizinische Bedeutung bleibt unverändert.", "Lektorat aktiv");
-  $("helperInput").focus();
-}
-
-function helperPrepareContext() {
-  state.helperTask = "context";
-  $("helperCard").classList.add("helper-card-open");
-  window.radimoAgent.setHelperFocusable(true);
-  helperSetStatus("Kontextmodus aktiviert: Luna trennt Beobachtung, Interpretation und Unsicherheit.", "Kontext");
-  $("helperInput").focus();
-}
-
-function helperStartDictation() {
-  state.helperTask = "report";
-  $("helperCard").classList.add("helper-card-open");
-  window.radimoAgent.setHelperFocusable(true);
-  helperSetStatus("Diktat aktiv. Danach prüfen und den Befund strukturieren.", "Diktat aktiv");
-  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!Recognition) {
-    helperSetStatus("Diktat ist in dieser Windows-Laufzeit nicht verfügbar. Feld kopieren und Erfassen verwenden oder Windows-Diktat nutzen.", "Nicht verfügbar");
+function syncPanelConnector() {
+  const deck = $("miniPanelDeck");
+  const core = $("miniCore");
+  if (!deck || !core || !state.activePanel) return;
+  const deckRect = deck.getBoundingClientRect();
+  const coreRect = core.getBoundingClientRect();
+  if (!deckRect.width || !deckRect.height || !coreRect.width || !coreRect.height) return;
+  const panel = panelKey(state.activePanel);
+  if (panel === "chat") {
+    const x = coreRect.left + coreRect.width / 2 - deckRect.left - 15;
+    deck.style.setProperty("--connector-x", `${Math.max(18, Math.min(deckRect.width - 48, x))}px`);
     return;
   }
-  const recognition = new Recognition();
-  recognition.lang = document.documentElement.lang === "de" ? "de-DE" : "en-US";
-  recognition.interimResults = true;
-  recognition.continuous = false;
-  recognition.onstart = () => helperSetStatus("Höre zu…", "Aufnahme");
-  recognition.onerror = (event) => helperSetStatus(`Diktatfehler: ${event.error}`, "Prüfung nötig");
-  recognition.onresult = (event) => {
-    const finalTranscript = [...event.results].filter((result) => result.isFinal).map((result) => result[0].transcript).join(" ").trim();
-    if (finalTranscript) $("helperInput").value = `${$("helperInput").value} ${finalTranscript}`.trim();
-    updateFieldLockUi();
-  };
-  recognition.onend = () => helperSetStatus("Diktat erfasst. Jetzt prüfen und strukturieren.", "Erfasst");
-  recognition.start();
+  const y = coreRect.top + coreRect.height / 2 - deckRect.top - 5;
+  deck.style.setProperty("--connector-y", `${Math.max(18, Math.min(deckRect.height - 28, y))}px`);
 }
 
-function helperPrepareReport() {
-  state.helperTask = "report";
-  $("helperCard").classList.add("helper-card-open");
-  window.radimoAgent.setHelperFocusable(true);
-  helperSetStatus("Befundarbeit aktiv: Befund strukturieren und optional Beurteilung entwerfen.", "Befundarbeit");
-  $("helperInput").focus();
-}
-
-async function helperSend() {
-  const input = $("helperInput").value.trim();
-  if (!input) {
-    helperSetStatus("Zuerst ein Feld erfassen oder eine kurze Anweisung eingeben.", "Warten");
-    return;
+function setPanel(panelId = "") {
+  const workspaceOpen = isWorkspacePanel(panelId);
+  for (const id of PANEL_IDS) {
+    const visible = workspaceOpen ? id === "miniEditorDrawer" || id === "miniChatDrawer" : id === panelId;
+    $(id)?.classList.toggle("hidden", !visible);
+    $(id)?.setAttribute("aria-hidden", String(!visible));
   }
-  const fieldLabel = helperFieldLabel();
-  const fieldContext = `Arbeitsfeld: ${fieldLabel}. Beziehe dich nur auf den gelieferten Text.\n\n`;
-  const taskPrompt = state.helperTask === "report" && state.helperFieldType === "beurteilung"
-    ? `Erstelle eine knappe Beurteilung/Zusammenfassung für diesen radiologischen Befund. Nenne nur das, was aus dem Text folgt. Bewahre Unsicherheit und wichtige Negativa. Keine neuen Befunde, Empfehlungen oder Diagnosen ergänzen. Ergebnis als Entwurf zur radiologischen Prüfung markieren.\n\n${fieldContext}`
-    : state.helperTask === "report"
-    ? `Strukturiere diesen diktierten radiologischen Befund konservativ. Verwende klare Überschriften für Fragestellung/Anforderung, Befund und ${$("helperCreateBeurteilung").checked ? "einen optionalen Beurteilungsentwurf" : "keine Beurteilung"}. Bewahre alle gelieferten Fakten, Zahlen, Einheiten, Negationen, Seitenangaben, Unsicherheiten und zeitlichen Angaben. Erfinde keine Befunde oder Empfehlungen. Kennzeichne das Ergebnis als Entwurf zur radiologischen Prüfung.\n\n${fieldContext}`
-    : state.helperTask === "correction"
-    ? `Korrigiere das medizinisch-radiologische Feld „${fieldLabel}“ ausschließlich hinsichtlich Rechtschreibung, Grammatik und Diktatfehlern. Bewahre alle Fakten, Zahlen, Negationen, Unsicherheiten und anatomischen Angaben. Gib nur den korrigierten Feldtext zurück. Falls etwas unklar ist, setze danach eine separate Zeile „PRÜFNOTIZ:“ hinzu.\n\n${fieldContext}`
-    : state.helperTask === "context"
-      ? `Prüfe das erfasste Feld „${fieldLabel}“ mit medizinischem Sicherheitsrahmen. Trenne Beobachtung, Interpretation, Unsicherheit und offene Punkte. Erfinde keine fehlenden Befunde.\n\n${fieldContext}`
-      : `Hilf bei diesem Feld („${fieldLabel}"). Sei präzise, bewahre die Bedeutung und benenne Unsicherheit statt zu raten.\n\n${fieldContext}`;
-  $("helperResult").value = "";
-  $("helperCopyResult").disabled = true;
-  helperSetStatus("Luna arbeitet…", "Denken");
-  state.lastAgentText = "";
-  try {
-    const assistantMode = state.helperTask === "report" ? (state.helperFieldType === "beurteilung" ? "conclusion" : "report") : state.helperTask === "correction" ? "correction" : state.helperTask === "context" ? "discussion" : "discussion";
-    await window.radimoAgent.sendTurn({ text: `${taskPrompt}${input}`, model: state.selectedModel, effort: "medium", medicalGate: true, radiologyMode: true, evidenceMode: false, assistantMode, writingProfile: "german-radiology", origin: "helper", fieldType: state.helperFieldType, fieldLabel: helperFieldLabel() });
-  } catch (error) {
-    helperSetStatus(error.message || "Die Helferanfrage ist fehlgeschlagen.", "Prüfung nötig");
+  state.activePanel = panelId;
+  document.body.dataset.miniPanel = panelId ? panelKey(panelId) : "none";
+  if (!panelId) {
+    document.body.dataset.miniPanelSide = "right";
+    document.body.dataset.miniPanelVertical = "bottom";
   }
-}
-
-async function helperCopyResult() {
-  $("helperCard").classList.add("helper-card-open");
-  const result = helperTransferText();
-  if (!result) return;
-  await window.radimoAgent.writeClipboard(result);
-  helperSetStatus(`${helperFieldLabel()} kopiert. Vor dem Einfügen prüfen.`, "Kopiert");
-}
-
-async function helperOpenDesktop() {
-  const result = helperTransferText() || $("helperInput").value.trim();
-  if (!result) {
-    helperSetStatus("Zuerst einen Befund erfassen oder strukturieren.", "Warten");
-    return;
-  }
-  helperSetStatus("Frische Desktop-Falldiskussion wird geöffnet…", "Desktop wird geöffnet");
-  await window.radimoAgent.openMainWithDraft({
-    text: `Diskutiere dieses Arbeitsfeld (${helperFieldLabel()}) auf medizinische und logische Unstimmigkeiten. Besprich fehlende Informationen, Differenzialdiagnosen und Unsicherheiten. Bevorzuge bei medizinischer Begründung peer-reviewte oder autoritative radiologische Quellen, sofern der Onlinezugriff verfügbar ist; nenne nur tatsächlich verwendete Quellen.\n\n${result}`,
-    mode: "discussion",
-    fresh: true,
-    fieldType: state.helperFieldType,
-    fieldLabel: helperFieldLabel(),
+  syncPanelControls();
+  const requestedPanel = panelId;
+  const focusable = Boolean(panelId) || state.settingsOpen;
+  const requestId = ++panelLayoutRequest;
+  window.radimoAgent.setHelperPanel(panelKey(requestedPanel), { requestId, epoch: panelLayoutEpoch }).then((layout) => {
+    if (requestId !== panelLayoutRequest || state.activePanel !== requestedPanel || layout?.stale) return;
+    if (layout) {
+      document.body.dataset.miniPanelSide = layout.side || "right";
+      document.body.dataset.miniPanelVertical = layout.vertical || "bottom";
+    }
+    syncPanelConnector();
+    return window.radimoAgent.setHelperFocusable(focusable).then(() => {
+      if (requestId !== panelLayoutRequest || state.activePanel !== requestedPanel) return;
+      window.requestAnimationFrame(syncPanelConnector);
+      const focusTarget = requestedPanel === "miniWorkspaceDrawer" ? (state.workspaceFocus === "editor" ? $("miniEditorText") : $("miniChatComposer"))
+        : requestedPanel === "miniReviewDrawer" ? (state.reviewMode === "text" ? $("miniReviewText") : $("miniReviewDiffToggle"))
+            : requestedPanel === "miniConfigDrawer" ? $("miniConfigAction")
+              : requestedPanel === "contextDrawer" ? $("chooseContext")
+            : requestedPanel === "loginModal" ? $("closeLogin") : null;
+      if (isVisibleFocusable(focusTarget)) focusTarget.focus();
+    });
+  }).catch((error) => {
+    if (requestId !== panelLayoutRequest || state.activePanel !== requestedPanel) return;
+    helperSetStatus(error.message || "Arbeitsbereich konnte nicht geöffnet werden.", "Prüfung nötig");
   });
 }
 
-async function helperWriteBack() {
-  const result = helperTransferText();
-  if (!result || !state.focusedTarget?.windowHandle) return;
-  helperSetStatus(`${helperFieldLabel()} wird ins RIS geschrieben…`, "Schreiben");
+function closeAttachedPanels({ restoreFocus = true } = {}) {
+  const returnFocus = state.panelReturnFocus;
+  setPanel("");
+  state.panelReturnFocus = null;
+  state.editorMode = "source";
+  if (restoreFocus && isVisibleFocusable(returnFocus)) returnFocus.focus();
+}
+
+function openPanel(panelId) {
+  const requestedPanel = normalizedPanelId(panelId);
+  if (requestedPanel === "miniReviewDrawer" && state.manualReviewPending) {
+    helperSetStatus("Den Entwurf zuerst im Editor prüfen.", "Manuell prüfen");
+    return;
+  }
+  if (state.activePanel === requestedPanel && requestedPanel !== "loginModal") {
+    closeAttachedPanels();
+    return;
+  }
+  const activePanel = state.activePanel;
+  if (!state.panelReturnFocus || (activePanel && !document.activeElement?.closest?.(`#${activePanel}`))) {
+    const invoker = document.activeElement;
+    if (isVisibleFocusable(invoker)) state.panelReturnFocus = invoker;
+  }
+  const switching = state.activePanel !== requestedPanel;
+  if (panelId === "miniEditorDrawer") state.workspaceFocus = "editor";
+  if (panelId === "miniChatDrawer") state.workspaceFocus = "chat";
+  if (switching && requestedPanel === "miniWorkspaceDrawer") {
+    $("miniEditorText").value = state.editorMode === "result" ? (state.lastAgentResult || $("miniReviewText")?.value || "") : currentHelperText();
+    syncMiniEditorMode();
+  }
+  if (switching && panelId === "miniReviewDrawer") {
+    $("miniReviewText").value = state.lastAgentResult || $("miniReviewText").value;
+    renderReviewDiff(state.lastSourceText, $("miniReviewText").value);
+    setReviewMode("diff");
+  }
+  state.settingsOpen = requestedPanel === "loginModal";
+  if (requestedPanel === "miniWorkspaceDrawer") {
+    state.chatUnread = false;
+    updateChatBadge();
+    syncDiscussionScope();
+  }
+  setPanel(requestedPanel);
+}
+
+function openSettings() {
+  state.dialogReturnFocus = document.activeElement;
+  state.settingsOpen = true;
+  openPanel("loginModal");
+  text("loginStatus", "");
+  void refreshOpenAIStatus();
+  void refreshShortcutStatus();
+}
+
+function closeSettings() {
+  state.settingsOpen = false;
+  setPanel("");
+  if (isVisibleFocusable(state.dialogReturnFocus)) state.dialogReturnFocus.focus();
+  state.dialogReturnFocus = null;
+}
+
+function handleDialogKeydown(event) {
+  const backdrop = $("loginModal");
+  if (!backdrop || backdrop.classList.contains("hidden")) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeSettings();
+    return;
+  }
+  if (event.key !== "Tab") return;
+  const focusable = [...backdrop.querySelectorAll("button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex='-1'])")]
+    .filter((node) => !node.closest(".hidden"));
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+function renderMiniTarget() {
+  const cell = $("miniTargetCell");
+  if (!cell) return;
+  const hasTarget = hasLockedTarget();
+  const hasText = Boolean(state.helperSourceText || state.pendingDictationText);
+  const editor = $("miniEditorText");
+  if (editor && state.editorMode === "source") {
+    const source = currentHelperText();
+    if (editor.value !== source) editor.value = source;
+  }
+  cell.classList.toggle("is-ready", hasTarget);
+  cell.classList.toggle("has-text", !hasTarget && hasText);
+  cell.classList.toggle("is-empty", !hasTarget && !hasText);
+  cell.setAttribute("aria-label", hasTarget ? `Externes Feld aktiv: ${helperFieldLabel()}` : hasText ? "Textquelle bereit" : "Arbeitsfeld oder Textquelle");
+  cell.title = hasTarget ? "Externes Feld aktiv · X löst das Zielfeld" : hasText ? "Textquelle bereit · X leert den Text" : "Externes Arbeitsfeld aktivieren oder Text hierher ziehen";
+  const targetIcon = $("miniTargetIcon");
+  if (targetIcon) targetIcon.setAttribute("href", hasTarget ? "#icon-lock" : hasText ? "#icon-edit" : "#icon-target");
+  const capture = $("miniCapture");
+  capture?.classList.toggle("is-active", hasTarget);
+  capture?.setAttribute("aria-label", hasTarget ? `Arbeitsfeld erneut lesen: ${helperFieldLabel()}` : hasText ? "Textquelle durch externes Arbeitsfeld ersetzen" : "Externes Arbeitsfeld aktivieren");
+  capture?.setAttribute("title", hasTarget ? "Arbeitsfeld erneut lesen" : hasText ? "Externes Arbeitsfeld aktivieren" : "Externes Arbeitsfeld aktivieren");
+  text("miniTargetCellStatus", hasTarget ? `Externes Feld aktiv: ${helperFieldLabel()}` : hasText ? "Textquelle bereit" : "Feld wählen");
+  const clear = $("miniTargetClear");
+  if (clear) clear.disabled = !hasTarget && !hasText;
+  if (clear) clear.title = hasTarget ? "Arbeitsfeld lösen" : "Textquelle leeren";
+  setMiniEditorAvailability();
+}
+
+function setMiniEditorAvailability() {
+  const resultMode = state.editorMode === "result" && Boolean(state.lastAgentResult.trim() || $("miniEditorText")?.value.trim());
+  const sourceReadOnly = hasLockedTarget() && !resultMode;
+  const toggle = $("miniEditorToggle");
+  if (toggle) {
+    toggle.classList.remove("hidden");
+    toggle.disabled = false;
+    toggle.title = resultMode ? "Ergebnis im Editor bearbeiten" : sourceReadOnly ? "Arbeitsfeld und Chat öffnen" : "Textquelle und Chat öffnen";
+    toggle.setAttribute("aria-label", toggle.title);
+  }
+  const use = $("miniEditorUse");
+  if (use) {
+    use.disabled = sourceReadOnly;
+    use.title = resultMode ? "Manuelle Änderungen zur Prüfung übernehmen" : sourceReadOnly ? "Aktives Arbeitsfeld ist eine schreibgeschützte Kontextansicht" : "Textquelle übernehmen";
+    use.setAttribute("aria-label", use.title);
+  }
+}
+
+function syncMiniEditorMode() {
+  const resultMode = state.editorMode === "result";
+  const sourceReadOnly = hasLockedTarget() && !resultMode;
+  const use = $("miniEditorUse");
+  const send = $("miniEditorSend");
+  const editor = $("miniEditorText");
+  text("miniEditorEyebrow", resultMode ? "MANUELL PRÜFEN" : sourceReadOnly ? "ARBEITSFELD" : "TEXTQUELLE");
+  text("miniEditorTitle", resultMode ? "Entwurf bearbeiten" : sourceReadOnly ? `${helperFieldLabel()} · Kontext` : "Textquelle");
+  text("miniEditorModeNote", resultMode ? "AI-Entwurf · nichts wird ins Zielfeld geschrieben, bevor du ihn prüfst." : sourceReadOnly ? "Automatisch aus dem aktiven Feld gelesen · wird nur als Chatkontext verwendet." : "Lokale Textquelle · wird nicht automatisch in ein externes Feld geschrieben.");
+  if (editor) {
+    editor.readOnly = sourceReadOnly;
+    editor.setAttribute("aria-readonly", String(sourceReadOnly));
+  }
+  if (use) {
+    use.querySelector("span")?.replaceChildren(document.createTextNode(resultMode ? "Zur Prüfung" : "Übernehmen"));
+    use.classList.toggle("is-primary", resultMode);
+    use.title = resultMode ? "Manuelle Änderungen zur Prüfung übernehmen" : "Textquelle übernehmen";
+    use.setAttribute("aria-label", use.title);
+  }
+  if (send) {
+    send.classList.toggle("is-primary", !resultMode);
+    send.title = resultMode ? "Ergebnis im Chat besprechen" : sourceReadOnly ? "Arbeitsfeld im Chat besprechen" : "Text im Chat prüfen";
+    send.setAttribute("aria-label", send.title);
+  }
+  setMiniEditorAvailability();
+  syncDiscussionScope();
+}
+
+function setMiniInsertState() {
+  const button = $("miniInsert");
+  const icon = $("miniInsertIcon");
+  if (!button || !icon) return;
+  const hasPending = Boolean(state.pendingDictationText.trim());
+  const hasReview = Boolean($("miniReviewText")?.value.trim() || state.lastAgentResult.trim());
+  const hasTarget = hasLockedTarget();
+  const readOnly = hasTarget && state.focusedTarget?.supportsWrite === false;
+  const ready = hasTarget && !readOnly && !state.manualReviewPending && !state.transferInFlight && !state.activeTask && !state.lastResultApplied && (hasPending || hasReview);
+  const review = $("miniReview");
+  if (review) {
+    review.classList.toggle("is-ready", hasReview);
+    review.title = state.manualReviewPending ? "Entwurf zuerst im Editor prüfen" : hasReview ? "Ergebnis prüfen" : "Ergebnis prüfen · noch kein Ergebnis";
+    review.setAttribute("aria-label", review.title);
+  }
+  const resultTargetChanged = Boolean(state.lastResultTarget?.windowHandle && (!hasTarget || !sameTargetIdentity(state.focusedTarget, state.lastResultTarget)));
+  text("miniReviewTarget", resultTargetChanged ? "Zielfeld geändert · Ergebnis nicht automatisch übernehmen." : hasTarget ? `${state.lastResultTask === "assessment" ? "Beurteilung wird ergänzt" : "Ergebnis ersetzt"} · Zielfeld: ${helperFieldLabel()}` : "Kein aktives Zielfeld · Ergebnis bleibt lokal.");
+  const reviewInsert = $("miniReviewInsert");
+  const reviewReady = hasReview && hasTarget && !readOnly && !resultTargetChanged && !state.manualReviewPending && !state.transferInFlight && !state.activeTask && !state.lastResultApplied;
+  if (reviewInsert) {
+    reviewInsert.disabled = !reviewReady;
+    reviewInsert.title = resultTargetChanged ? "Zielfeld geändert · Aktion erneut starten" : readOnly ? "Zielfeld ist schreibgeschützt" : state.manualReviewPending ? "Zuerst den Entwurf im Editor prüfen" : "Geprüftes Ergebnis ins Zielfeld übernehmen";
+    reviewInsert.setAttribute("aria-label", reviewInsert.title);
+  }
+  button.disabled = !ready;
+  button.classList.toggle("is-ready", ready);
+  button.title = readOnly ? "Zielfeld ist schreibgeschützt" : state.manualReviewPending ? "Nach manueller Prüfung ins Zielfeld übernehmen" : hasPending ? "Diktat ins Arbeitsfeld einsetzen" : state.lastResultTask === "assessment" ? "Beurteilung im Arbeitsfeld ergänzen" : "Geprüftes Ergebnis im Arbeitsfeld anwenden";
+  button.setAttribute("aria-label", button.title);
+  const use = icon.querySelector("use");
+  if (use) use.setAttribute("href", "#icon-insert");
+  const copy = $("miniReviewCopy");
+  if (copy) copy.disabled = !hasReview;
+  const save = $("saveCorrectionDraft");
+  if (save) save.disabled = !hasReview || !state.contextReport?.source?.path;
+}
+
+function rememberFocusedField(focused) {
+  if (focused?.ok === false || !focused?.windowHandle || state.working || state.transferInFlight) return null;
+  state.focusedTarget = {
+    ...focused,
+    expectedFieldHash: focused.hash || null,
+    replaceAll: focused.strategy !== "TextPattern.Selection",
+  };
+  state.fieldLocked = true;
+  setHelperFieldType(inferHelperFieldType(focused));
+  state.helperSourceText = typeof focused.text === "string" ? focused.text.trim() : "";
+  state.pendingDictationText = "";
+  state.pendingDictationTarget = null;
+  void window.radimoAgent.patchWorkflow({
+    fieldType: state.helperFieldType,
+    fieldLabel: helperFieldLabel(),
+    phase: "capturing",
+    target: "selected-field",
+    targetIdentity: state.focusedTarget,
+  });
+  renderMiniTarget();
+  syncDiscussionScope();
+  setMiniInsertState();
+  return state.focusedTarget;
+}
+
+async function captureWorkingField({ selectionOnly = false } = {}) {
+  if (state.working || state.transferInFlight) {
+    helperSetStatus("Das Arbeitsfeld kann während einer laufenden Aktion nicht gewechselt werden.", "Bitte warten");
+    return null;
+  }
+  await window.radimoAgent.setHelperFocusable(false);
   try {
-    const response = await window.radimoAgent.writeFocusedField({ text: result, target: state.focusedTarget });
-    if (response?.ok) helperSetStatus(`${helperFieldLabel()} übertragen. Text im RIS prüfen.`, "Geschrieben");
-    else helperSetStatus(`Feld konnte nicht beschrieben werden: ${response?.error || "unbekannter Fehler"}. Ergebnis stattdessen kopieren.`, "Prüfung nötig");
+    const focused = await window.radimoAgent.readFocusedField({ selectionOnly });
+    const target = rememberFocusedField(focused);
+    if (target) {
+      const label = selectionOnly ? "Textauswahl im externen Feld aktiv" : "Externes Feld aktiv";
+      helperSetStatus(state.helperSourceText ? `${label} · ${state.helperSourceText.length} Zeichen.` : `${label} · Cursor bleibt im Zielprogramm.`, label);
+      return target;
+    }
+    const message = focused?.error === "no-selection"
+      ? "Keine Textauswahl gefunden. Text markieren und Auswahl erneut aktivieren."
+      : focused?.error === "helper-focused"
+        ? "Das ReportHalo-Fenster ist noch aktiv. Cursor im Zielprogramm setzen und Feld erneut aktivieren."
+      : "Kein unterstütztes externes Textfeld gefunden. Text kann hierher gezogen werden.";
+    helperSetStatus(message, focused?.error === "no-selection" ? "Keine Auswahl" : "Feld fehlt");
+    return null;
   } catch (error) {
-    helperSetStatus(error.message || "Feld konnte nicht beschrieben werden.", "Prüfung nötig");
+    helperSetStatus(error.message || "Arbeitsfeld konnte nicht aktiviert werden.", "Prüfung nötig");
+    return null;
+  } finally {
+    void window.radimoAgent.setHelperFocusable(Boolean(state.activePanel) || state.settingsOpen);
   }
 }
 
-function helperToggleCard() {
-  $("helperInput").focus();
-  window.radimoAgent.setHelperFocusable(true);
+async function miniCaptureField() {
+  return captureWorkingField({ selectionOnly: false });
 }
 
-function setHelperView(view) {
-  const mini = view === "mini";
-  document.body.classList.toggle("helper-mini", mini);
-  $("helperVerticalMode").classList.toggle("active", !mini);
-  $("helperMiniMode").classList.toggle("active", mini);
-  window.localStorage?.setItem("radimo-helper-view", mini ? "mini" : "vertical");
+async function miniCaptureSelection() {
+  return captureWorkingField({ selectionOnly: true });
 }
 
-function enableHelperDragging() {
-  for (const moon of document.querySelectorAll(".helper-moon")) {
-    let dragging = false;
-    let moved = false;
-    let startX = 0;
-    let startY = 0;
-    let originX = Number(moon.dataset.translateX || 0);
-    let originY = Number(moon.dataset.translateY || 0);
-    moon.addEventListener("pointerdown", (event) => {
-      dragging = true;
-      moved = false;
-      startX = event.clientX;
-      startY = event.clientY;
-      originX = Number(moon.dataset.translateX || 0);
-      originY = Number(moon.dataset.translateY || 0);
-      moon.setPointerCapture(event.pointerId);
-    });
-    moon.addEventListener("pointermove", (event) => {
-      if (!dragging) return;
-      const dx = event.clientX - startX;
-      const dy = event.clientY - startY;
-      moved ||= Math.hypot(dx, dy) > 5;
-      if (moved) {
-        moon.dataset.translateX = String(originX + dx);
-        moon.dataset.translateY = String(originY + dy);
-        moon.style.translate = `${originX + dx}px ${originY + dy}px`;
+function handleMiniTargetDrop(event) {
+  event.preventDefault();
+  event.stopPropagation();
+  if (state.working || state.transferInFlight) {
+    helperSetStatus("Eine laufende Aktion zuerst abwarten.", "Bitte warten");
+    return;
+  }
+  const dropped = event.dataTransfer?.getData("text/plain")?.trim();
+  if (!dropped) {
+    helperSetStatus("Nur Text kann als Arbeitsgrundlage übernommen werden.", "Kein Text");
+    return;
+  }
+  state.focusedTarget = null;
+  state.fieldLocked = false;
+  state.helperSourceText = dropped;
+  state.pendingDictationText = "";
+  state.pendingDictationTarget = null;
+  void window.radimoAgent.patchWorkflow({ phase: "idle", target: "text", targetIdentity: null });
+  syncDiscussionScope();
+  helperSetStatus(`${dropped.length} Zeichen als Textquelle übernommen. Für Einsetzen ein externes Arbeitsfeld aktivieren.`, "Text bereit");
+}
+
+async function ensureSource({ allowEmpty = false } = {}) {
+  const source = currentHelperText();
+  return source || allowEmpty ? source : "";
+}
+
+async function ensureWorkflow(mode) {
+  if (!state.workflow || state.workflow.origin !== "helper") {
+    const workflow = await window.radimoAgent.newWorkflowCase({ fieldType: state.helperFieldType, fieldLabel: helperFieldLabel() });
+    state.workflow = workflow;
+  }
+  const workflow = await window.radimoAgent.patchWorkflow({
+    mode,
+    phase: "reviewing",
+    target: state.focusedTarget?.windowHandle ? "selected-field" : "text",
+    targetIdentity: state.focusedTarget || null,
+  });
+  state.workflow = workflow || state.workflow;
+}
+
+function actionPrompt(task) {
+  const base = {
+    correction: "Medizinisches Lektorat: Überarbeite nur den vorhandenen Text. Korrigiere Rechtschreibung, Grammatik, Diktatfehler und Lesbarkeit. Keine neuen Inhalte.",
+    write: "Formuliere nur den vorhandenen Text klarer. Keine neuen Informationen und keine inhaltlichen Ergänzungen.",
+    structure: "Ordne nur den vorhandenen Text besser. Nichts ergänzen und keine fehlenden Bausteine erfinden.",
+    assessment: "Fasse nur die vorhandenen Aussagen knapp als Beurteilung. Unsicherheiten und Lücken bleiben sichtbar.",
+    discussion: "Chat: Antworte knapp in 1–4 kurzen Absätzen oder höchstens fünf Stichpunkten. Erkläre, frage nach und diskutiere nur anhand des vorhandenen Textes. Du schreibst nie in ein externes Feld.",
+    proposal: "Vorschlag: Erstelle aus dem Arbeitsfeld und der Anweisung einen kurzen, bearbeitbaren Textentwurf. Der Entwurf darf die gewünschte Zielsektion (zum Beispiel Befund oder Beurteilung) abbilden, aber keine neuen medizinischen Fakten ergänzen. Schreibe nie in ein externes Feld.",
+  }[task] || "Bearbeite nur den vorhandenen Text und markiere offene Punkte.";
+  return [base, configuredActionPrompt(task)].filter(Boolean).join("\n");
+}
+
+const TEXT_ACTION_OUTPUT_CONTRACT = [
+  "FELDAKTION: Gib ausschließlich das vollständige JSON-Ergebnis im vorgegebenen Schema zurück.",
+  "text ist der vollständige Ersatztext. changes nennt nur tatsächliche Sprach-, Rechtschreib-, Grammatik- oder Lektoratsänderungen; unclear, logicIssues und medicalIssues sind kurze Hinweise zum Ausgangstext und werden nicht geändert. Keine Einleitung, kein Markdown, keine neuen medizinischen Fakten.",
+].join(" ");
+
+const PROPOSAL_OUTPUT_CONTRACT = [
+  "VORSCHLAG: Gib ausschließlich das vollständige JSON-Ergebnis im vorgegebenen Schema zurück.",
+  "text ist ein bearbeitbarer Textvorschlag für die gewünschte Zielsektion. Er darf den vorhandenen Text verbessern oder knapp neu fassen, aber keine neuen medizinischen Fakten, Diagnosen, Zahlen, Empfehlungen oder Gewissheiten erfinden.",
+  "changes nennt höchstens drei kurze Hinweise zum Vorschlag; unclear, logicIssues und medicalIssues nennen offene Punkte, die nicht stillschweigend geändert wurden. Keine Einleitung, kein Markdown.",
+].join(" ");
+
+function emptyAgentMeta() {
+  return { changes: [], unclear: [], logicIssues: [], medicalIssues: [] };
+}
+
+function normalizeMetaList(value) {
+  const values = Array.isArray(value) ? value : typeof value === "string" && value.trim() ? [value] : [];
+  return values.map((item) => String(item).trim()).filter(Boolean).slice(0, 3).map((item) => item.slice(0, 180));
+}
+
+function diffLineRows(before, after) {
+  const oldText = String(before || "");
+  const newText = String(after || "");
+  const oldLines = oldText ? oldText.split(/\r?\n/) : [];
+  const newLines = newText ? newText.split(/\r?\n/) : [];
+  if (!oldLines.length && !newLines.length) return [];
+  const rows = [];
+  let oldIndex = 0;
+  let newIndex = 0;
+  while (oldIndex < oldLines.length || newIndex < newLines.length) {
+    if (oldIndex < oldLines.length && newIndex < newLines.length && oldLines[oldIndex] === newLines[newIndex]) {
+      rows.push({ type: "same", before: oldLines[oldIndex], after: newLines[newIndex] });
+      oldIndex += 1;
+      newIndex += 1;
+      continue;
+    }
+    const nextOld = newIndex < newLines.length ? oldLines.indexOf(newLines[newIndex], oldIndex + 1) : -1;
+    const nextNew = oldIndex < oldLines.length ? newLines.indexOf(oldLines[oldIndex], newIndex + 1) : -1;
+    if (nextOld >= 0 && (nextNew < 0 || nextOld - oldIndex <= nextNew - newIndex)) {
+      rows.push({ type: "removed", before: oldLines[oldIndex], after: "" });
+      oldIndex += 1;
+    } else if (nextNew >= 0) {
+      rows.push({ type: "added", before: "", after: newLines[newIndex] });
+      newIndex += 1;
+    } else {
+      if (oldIndex < oldLines.length && newIndex < newLines.length) {
+        rows.push({ type: "changed", before: oldLines[oldIndex], after: newLines[newIndex] });
+      } else {
+        if (oldIndex < oldLines.length) rows.push({ type: "removed", before: oldLines[oldIndex], after: "" });
+        if (newIndex < newLines.length) rows.push({ type: "added", before: "", after: newLines[newIndex] });
       }
-    });
-    const finishDrag = () => {
-      dragging = false;
-      if (moved) {
-        moon.dataset.dragged = "true";
-        window.setTimeout(() => { moon.dataset.dragged = "false"; }, 350);
-      }
-    };
-    moon.addEventListener("pointerup", finishDrag);
-    moon.addEventListener("pointercancel", finishDrag);
-    moon.addEventListener("click", (event) => {
-      if (moon.dataset.dragged === "true") {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        moon.dataset.dragged = "false";
-      }
-    }, true);
+      oldIndex += 1;
+      newIndex += 1;
+    }
+  }
+  return rows;
+}
+
+function diffCharacterParts(before, after) {
+  const oldText = String(before || "");
+  const newText = String(after || "");
+  let prefix = 0;
+  while (prefix < oldText.length && prefix < newText.length && oldText[prefix] === newText[prefix]) prefix += 1;
+  let suffix = 0;
+  while (
+    suffix < oldText.length - prefix &&
+    suffix < newText.length - prefix &&
+    oldText[oldText.length - suffix - 1] === newText[newText.length - suffix - 1]
+  ) suffix += 1;
+  return {
+    prefix: oldText.slice(0, prefix),
+    removed: oldText.slice(prefix, oldText.length - suffix),
+    added: newText.slice(prefix, newText.length - suffix),
+    suffix: suffix ? oldText.slice(oldText.length - suffix) : "",
+  };
+}
+
+function appendDiffText(line, value, className = "same") {
+  if (!value) return;
+  const span = document.createElement("span");
+  span.className = `mini-diff-char ${className}`;
+  span.textContent = value;
+  line.append(span);
+}
+
+function renderDiffSide(node, rows, side) {
+  if (!node) return;
+  node.replaceChildren();
+  for (const row of rows) {
+    const line = document.createElement("div");
+    line.className = `mini-diff-line ${row.type}`;
+    if (row.type === "changed") {
+      const parts = diffCharacterParts(row.before, row.after);
+      appendDiffText(line, parts.prefix);
+      appendDiffText(line, side === "before" ? parts.removed : parts.added, side === "before" ? "removed" : "added");
+      appendDiffText(line, parts.suffix);
+    } else {
+      line.textContent = row[side] || " ";
+    }
+    node.append(line);
   }
 }
 
-$("modelSelect").addEventListener("change", (event) => { state.selectedModel = event.target.value; updateImageAttachmentCapability(); addActivity("Model selected", state.selectedModel, false); });
-$("assistantMode").addEventListener("change", (event) => { setAssistantMode(event.target.value); addActivity("Work mode selected", event.target.options[event.target.selectedIndex].textContent, false); });
-$("writingProfile").addEventListener("change", (event) => setWritingProfile(event.target.value));
-$("evidenceMode").addEventListener("change", () => updateEvidenceLedger());
-$("useLocalReferences").addEventListener("change", () => updateEvidenceLedger());
-$("newDiscussion").addEventListener("click", startNewDiscussion);
-$("sendButton").addEventListener("click", send);
-$("composer").addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(); } });
-$("composer").addEventListener("input", (event) => { event.target.style.height = "auto"; event.target.style.height = `${Math.min(event.target.scrollHeight, 130)}px`; });
-$("accountButton").addEventListener("click", openLogin);
-$("closeLogin").addEventListener("click", closeLogin);
-$("loginButton").addEventListener("click", login);
-$("logoutButton").addEventListener("click", logout);
-$("refreshButton").addEventListener("click", refreshConnection);
-$("contextMoon").addEventListener("click", openContext);
-$("closeContext").addEventListener("click", closeContext);
-$("chooseContext").addEventListener("click", chooseContext);
-$("chooseClinicRoot").addEventListener("click", chooseClinicRoot);
-$("openClinicRoot").addEventListener("click", openClinicRoot);
-$("clinicSelect").addEventListener("change", (event) => { state.selectedClinicId = event.target.value; renderClinicCatalog(state.clinicCatalog); });
-$("chooseReferences").addEventListener("click", chooseReferences);
-$("clearReferences").addEventListener("click", clearReferences);
-$("fetchReferenceUrl").addEventListener("click", fetchReferenceUrl);
-$("importGuidance").addEventListener("click", importGuidance);
-$("exportGuidance").addEventListener("click", exportGuidance);
-$("openGuidanceFolder").addEventListener("click", openGuidanceFolder);
-$("insertTemplate").addEventListener("click", insertTemplate);
-$("captureScreen").addEventListener("click", captureScreen);
-$("copyScreenCapture").addEventListener("click", copyScreenCapture);
-$("saveContext").addEventListener("click", saveContext);
-$("copyContext").addEventListener("click", copyContext);
-$("copySelectedField").addEventListener("click", copySelectedField);
-$("prepareCorrection").addEventListener("click", prepareCorrection);
-$("copyLastResponse").addEventListener("click", copyLastResponse);
-$("saveCorrectionDraft").addEventListener("click", saveCorrectionDraft);
-$("copyDiagnostics").addEventListener("click", copyDiagnostics);
-$("testConnection").addEventListener("click", testConnection);
-$("applyProxy").addEventListener("click", applyProxy);
-$("helperToggle").addEventListener("click", () => window.radimoAgent.toggleHelper());
-$("activityMoon").addEventListener("click", toggleMinimap);
-$("chatMoon").addEventListener("click", () => { $("composer").focus(); addActivity("Conversation ready", "The island is ready for your next prompt", false); });
-$("focusMoon").addEventListener("click", () => { $("composer").focus(); setIslandState("Focused"); addActivity("Focus mode", "Composer is ready", false); });
-$("exploreMoon").addEventListener("click", () => openContext());
-$("automateMoon").addEventListener("click", () => showToast("Vorlagen und Schreibregeln findest du im Kontextfinder."));
-$("helperCaptureMoon").addEventListener("click", helperCapture);
-$("helperLockField").addEventListener("click", lockFocusedField);
-$("helperReleaseField").addEventListener("click", releaseFocusedField);
-$("helperTransfer").addEventListener("click", transferDictationBox);
-$("helperDiscard").addEventListener("click", discardDictationBox);
-$("helperInput").addEventListener("input", updateFieldLockUi);
-$("helperFieldType").addEventListener("change", (event) => { setHelperFieldType(event.target.value); helperSetStatus(`${helperFieldLabel()} ausgewählt.`, "Ziel gewählt"); });
-$("helperFixMoon").addEventListener("click", helperPrepareFix);
-$("helperStructure").addEventListener("click", () => { helperPrepareReport(); helperSend(); });
-$("helperDictateMoon").addEventListener("click", helperStartDictation);
-$("helperContextMoon").addEventListener("click", helperPrepareContext);
-$("helperCopyMoon").addEventListener("click", helperCopyResult);
-$("helperCopyResult").addEventListener("click", helperCopyResult);
-$("helperWriteBack").addEventListener("click", helperWriteBack);
-$("helperOpenMain").addEventListener("click", helperOpenDesktop);
-$("helperActivityMoon").addEventListener("click", helperToggleCard);
-$("helperMenu").addEventListener("click", helperToggleCard);
-$("helperVerticalMode").addEventListener("click", () => setHelperView("vertical"));
-$("helperMiniMode").addEventListener("click", () => setHelperView("mini"));
-$("helperClose").addEventListener("click", () => { window.radimoAgent.setHelperFocusable(false); window.radimoAgent.hideHelper(); });
-// The desktop hand-off is handled by helperOpenDesktop so a structured report
-// starts a fresh case stream instead of merely revealing the old conversation.
-$("helperSend").addEventListener("click", helperSend);
-for (const button of document.querySelectorAll("[data-prompt]")) button.addEventListener("click", () => {
-  if (button.dataset.mode) setAssistantMode(button.dataset.mode);
-  $("composer").value = button.dataset.prompt;
-  $("composer").focus();
+function renderReviewDiff(before, after) {
+  const rows = diffLineRows(before, after);
+  renderDiffSide($("miniReviewBefore"), rows, "before");
+  renderDiffSide($("miniReviewAfter"), rows, "after");
+  $("miniReviewDiffEmpty")?.classList.toggle("hidden", rows.length > 0);
+}
+
+function setReviewMode(mode = "diff") {
+  state.reviewMode = mode === "text" ? "text" : "diff";
+  const diffMode = state.reviewMode === "diff";
+  $("miniReviewDiff")?.classList.toggle("hidden", !diffMode);
+  $("miniReviewText")?.classList.toggle("hidden", diffMode);
+  const diffToggle = $("miniReviewDiffToggle");
+  const editToggle = $("miniReviewEditToggle");
+  diffToggle?.classList.toggle("is-active", diffMode);
+  editToggle?.classList.toggle("is-active", !diffMode);
+  diffToggle?.setAttribute("aria-selected", String(diffMode));
+  editToggle?.setAttribute("aria-selected", String(!diffMode));
+  $("miniReviewDiff")?.setAttribute("aria-hidden", String(!diffMode));
+  $("miniReviewText")?.setAttribute("aria-hidden", String(diffMode));
+}
+
+function parseAgentResult(raw) {
+  const cleaned = String(raw || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+  const candidates = [cleaned];
+  const firstBrace = cleaned.indexOf("{");
+  const lastBrace = cleaned.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace && (firstBrace > 0 || lastBrace < cleaned.length - 1)) candidates.push(cleaned.slice(firstBrace, lastBrace + 1));
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
+      if (typeof parsed.text !== "string") continue;
+      const resultText = parsed.text.trim();
+      if (!resultText) continue;
+      return {
+        valid: true,
+        text: resultText,
+        meta: {
+          changes: normalizeMetaList(parsed.changes),
+          unclear: normalizeMetaList(parsed.unclear),
+          logicIssues: normalizeMetaList(parsed.logicIssues),
+          medicalIssues: normalizeMetaList(parsed.medicalIssues),
+        },
+      };
+    } catch {
+      // The model response is kept out of the foreign field when the contract is broken.
+    }
+  }
+  return { valid: false, text: "", meta: emptyAgentMeta() };
+}
+
+function updateChatBadge() {
+  const badge = $("miniChatBadge");
+  badge?.classList.toggle("hidden", !state.chatUnread);
+  const button = $("miniChatToggle");
+  if (button) {
+    button.classList.toggle("has-unread", state.chatUnread);
+    button.title = state.chatUnread ? "Text & Chat öffnen · neue Hinweise" : "Text & Chat öffnen";
+    button.setAttribute("aria-label", button.title);
+  }
+}
+
+function syncDiscussionScope() {
+  const scope = $("miniChatScope");
+  if (!scope) return;
+  const source = currentHelperText();
+  scope.textContent = hasLockedTarget()
+    ? `${helperFieldLabel()} wird automatisch mitbesprochen · Zielfeld bleibt unverändert`
+    : source
+      ? "Textquelle wird automatisch mitbesprochen · nichts wird ins Zielfeld geschrieben"
+      : "Kein Textkontext · Frage kann trotzdem gestellt werden";
+}
+
+function appendChatMessage(role, value, { unread = role === "assistant" } = {}) {
+  const message = String(value || "").slice(0, MAX_CHAT_MESSAGE_CHARS);
+  state.chatMessages.push({ role, text: message });
+  if (state.chatMessages.length > MAX_CHAT_MESSAGES) state.chatMessages.splice(0, state.chatMessages.length - MAX_CHAT_MESSAGES);
+  const log = $("miniChatLog");
+  $("miniChatEmpty")?.classList.add("hidden");
+  if (!log) return null;
+  const article = document.createElement("article");
+  article.className = `mini-chat-message ${role === "user" ? "is-user" : "is-assistant"}`;
+  const label = document.createElement("span");
+  label.className = "mini-chat-message-label";
+  label.textContent = role === "user" ? "Du" : "ReportHalo";
+  const body = document.createElement("div");
+  body.className = "mini-chat-message-body";
+  body.textContent = message || "…";
+  article.append(label, body);
+  log.append(article);
+  while (log.querySelectorAll(".mini-chat-message, .mini-chat-proposal").length > MAX_CHAT_MESSAGES) log.querySelector(".mini-chat-message, .mini-chat-proposal")?.remove();
+  log.scrollTop = log.scrollHeight;
+  if (role === "assistant" && unread && !isChatVisible()) {
+    state.chatUnread = true;
+    updateChatBadge();
+  }
+  return body;
+}
+
+function appendChatProposal(result) {
+  const log = $("miniChatLog");
+  if (!log) return;
+  $("miniChatEmpty")?.classList.add("hidden");
+  const article = document.createElement("article");
+  article.className = "mini-chat-proposal";
+  article.draggable = true;
+  article.title = "Vorschlag ziehen, um ihn als lokale Textquelle zu übernehmen";
+  article.addEventListener("dragstart", (event) => {
+    event.dataTransfer?.setData("text/plain", result);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy";
+  });
+  const label = document.createElement("span");
+  label.className = "mini-chat-message-label";
+  label.textContent = "Vorschlag";
+  const body = document.createElement("div");
+  body.textContent = "Bearbeitbarer Vorschlag im Textfeld bereit.";
+  const button = document.createElement("button");
+  button.className = "mini-panel-button";
+  button.type = "button";
+  button.textContent = "Im Textfeld öffnen";
+  button.addEventListener("click", () => openResultEditor(result));
+  article.append(label, body, button);
+  log.append(article);
+  log.scrollTop = log.scrollHeight;
+}
+
+function renderChatAssistantNow(value) {
+  const next = String(value || "").slice(0, MAX_CHAT_MESSAGE_CHARS);
+  const message = state.chatMessages[state.chatMessages.length - 1];
+  if (message?.role === "assistant") message.text = next;
+  if (state.chatAssistantNode) {
+    state.chatAssistantNode.textContent = next || "…";
+    const log = $("miniChatLog");
+    if (log) log.scrollTop = log.scrollHeight;
+  }
+}
+
+function updateChatAssistant(value, { immediate = false } = {}) {
+  pendingChatAssistantText = String(value || "");
+  if (immediate) {
+    if (chatAssistantRenderFrame) window.cancelAnimationFrame(chatAssistantRenderFrame);
+    chatAssistantRenderFrame = 0;
+    renderChatAssistantNow(pendingChatAssistantText);
+    return;
+  }
+  if (chatAssistantRenderFrame) return;
+  chatAssistantRenderFrame = window.requestAnimationFrame(() => {
+    chatAssistantRenderFrame = 0;
+    renderChatAssistantNow(pendingChatAssistantText);
+  });
+}
+
+function clearChatView() {
+  if (chatAssistantRenderFrame) window.cancelAnimationFrame(chatAssistantRenderFrame);
+  chatAssistantRenderFrame = 0;
+  pendingChatAssistantText = "";
+  state.chatMessages = [];
+  state.chatAssistantNode = null;
+  const log = $("miniChatLog");
+  if (log) [...log.querySelectorAll(".mini-chat-message, .mini-chat-proposal")].forEach((node) => node.remove());
+  $("miniChatEmpty")?.classList.remove("hidden");
+  state.chatUnread = false;
+  updateChatBadge();
+}
+
+async function startNewDiscussion() {
+  if (state.working) {
+    helperSetStatus("Die laufende Anfrage zuerst abwarten.", "Denken");
+    return;
+  }
+  clearChatView();
+  try {
+    await window.radimoAgent.newDiscussion();
+    helperSetStatus("Neue Diskussion gestartet. Sie ändert kein Zielfeld.", "Chat");
+  } catch (error) {
+    helperSetStatus(error.message || "Neue Diskussion konnte nicht gestartet werden.", "Prüfung nötig");
+  }
+}
+
+function renderAgentNotes(meta) {
+  state.lastAgentMeta = {
+    changes: normalizeMetaList(meta?.changes),
+    unclear: normalizeMetaList(meta?.unclear),
+    logicIssues: normalizeMetaList(meta?.logicIssues),
+    medicalIssues: normalizeMetaList(meta?.medicalIssues),
+  };
+  const count = Object.values(state.lastAgentMeta).reduce((total, items) => total + items.length, 0);
+  text("miniReviewStatus", count ? "Änderungen und Hinweise stehen im Chat." : "Keine zusätzlichen Hinweise gemeldet.");
+}
+
+function resultTaskLabel(task) {
+  return { correction: "Lektorat", write: "Formulierung", structure: "Textordnung", assessment: "Beurteilung", proposal: "Vorschlag" }[task] || "Bearbeitung";
+}
+
+function formatResultMeta(task, meta, { activeTarget = false, transferred = false, verified = false, replaced = false, appended = false, manualReview = false } = {}) {
+  const status = appended && verified ? "Die Beurteilung wurde unterhalb des vorhandenen Textes ergänzt." : replaced && verified ? "Der vollständige Text wurde im aktiven Feld ersetzt." : manualReview ? "Das aktive Feld wurde nicht verändert. Der Entwurf wartet auf deine Prüfung im Editor." : transferred ? "Die Übertragung wurde versucht, aber das Zielfeld ist noch nicht verifiziert." : activeTarget ? "Das aktive Feld wurde nicht verändert, weil es nicht verifiziert werden konnte." : "Kein aktives externes Feld wurde verändert.";
+  const lines = [`${resultTaskLabel(task)} abgeschlossen. ${status}`];
+  const sections = [
+    ["Geändert", meta.changes],
+    ["Unklar", meta.unclear],
+    ["Logisch prüfen · nicht geändert", meta.logicIssues],
+    ["Medizinisch prüfen · nicht geändert", meta.medicalIssues],
+  ];
+  let hasNotes = false;
+  for (const [label, items] of sections) {
+    if (!items.length) continue;
+    hasNotes = true;
+    lines.push("", `${label}:`, ...items.map((item) => `• ${item}`));
+  }
+  if (!hasNotes) lines.push("", "Keine zusätzlichen Hinweise.");
+  return lines.join("\n");
+}
+
+async function runAgentAction(task, instruction = "", sourceOverride = null) {
+  if (state.working) return;
+  const operationTarget = targetSnapshot();
+  const source = sourceOverride?.trim() || await ensureSource({ allowEmpty: (task === "discussion" || task === "proposal") && Boolean(instruction.trim()) });
+  if (!source && !instruction.trim()) {
+    helperSetStatus("Zuerst ein Arbeitsfeld aktivieren oder eine Frage eingeben.", "Eingang fehlt");
+    return;
+  }
+  const mode = { correction: "correction", write: "report", structure: "report", assessment: "conclusion", discussion: "discussion", proposal: "proposal" }[task] || "discussion";
+  const attachedContext = contextPrompt();
+  const attachedReferences = referencePrompt();
+  const attachedImage = $("useScreenCapture")?.checked && state.screenCapture?.path ? state.screenCapture.path : null;
+  const isChat = task === "discussion";
+  const isProposal = task === "proposal";
+  const sourceBlock = source ? `[AUTOMATISCHER ARBEITSTEXT · ${helperFieldLabel()}]\n${source}\n[/AUTOMATISCHER ARBEITSTEXT]` : "[KEIN ARBEITSTEXT VORHANDEN]";
+  const prompt = [actionPrompt(task), isChat ? "" : isProposal ? PROPOSAL_OUTPUT_CONTRACT : TEXT_ACTION_OUTPUT_CONTRACT, instruction.trim(), `Arbeitsfeld: ${helperFieldLabel()}`, sourceBlock, attachedContext, attachedReferences].filter(Boolean).join("\n\n");
+  state.activeTask = task;
+  state.lastSourceText = source;
+  state.lastAgentText = "";
+  if (!isChat) {
+    state.pendingDictationText = "";
+    state.pendingDictationTarget = null;
+    state.lastResultApplied = false;
+    state.lastResultTarget = operationTarget;
+    state.manualReviewPending = false;
+    state.lastAgentResult = "";
+    state.lastResultTask = "";
+    state.lastAgentMeta = emptyAgentMeta();
+    $("miniReviewText").value = "";
+    renderReviewDiff("", "");
+    renderAgentNotes(state.lastAgentMeta);
+  }
+  setMiniWorkingState(true);
+  helperSetStatus("ReportHalo arbeitet…", "Denken");
+  try {
+    await ensureWorkflow(mode);
+    await window.radimoAgent.sendTurn({
+      text: prompt,
+      model: state.selectedModel || DEFAULT_HELPER_MODEL,
+      effort: HELPER_REASONING_EFFORT,
+      medicalGate: true,
+      radiologyMode: true,
+      evidenceMode: false,
+      assistantMode: mode,
+      writingProfile: state.writingProfile,
+      fieldType: state.helperFieldType,
+      fieldLabel: helperFieldLabel(),
+      targetIdentity: state.focusedTarget?.windowHandle ? { ...state.focusedTarget } : null,
+      imagePath: attachedImage,
+    });
+  } catch (error) {
+    setMiniWorkingState(false);
+    if (isChat && state.chatAssistantNode) {
+      state.chatAssistantNode.textContent = error.message || "Anfrage konnte nicht gestartet werden.";
+      state.chatAssistantNode.classList.add("is-error");
+      state.chatAssistantNode = null;
+    }
+    state.activeTask = "";
+    helperSetStatus(error.message || "Anfrage konnte nicht gestartet werden.", "Prüfung nötig");
+  }
+}
+
+function reviewText() {
+  return String($("miniReviewText")?.value || state.lastAgentResult || "").trim();
+}
+
+async function insertTextIntoField(value, { isDictation = false, automatic = false, append = false, targetOverride = null, sourceText = null } = {}) {
+  const textToInsert = String(value || "").trim();
+  const target = targetOverride || state.focusedTarget;
+  if (!textToInsert || !target?.windowHandle || !state.fieldLocked) {
+    helperSetStatus("Kein gesichertes Arbeitsfeld für dieses Ergebnis vorhanden.", "Feld fehlt");
+    return null;
+  }
+  if (targetOverride && !sameTargetIdentity(state.focusedTarget, targetOverride)) {
+    helperSetStatus("Das Ergebnis gehört zu einem anderen Arbeitsfeld. Bitte die Aktion erneut starten.", "Zielfeld geändert");
+    return null;
+  }
+  if (target.supportsWrite === false) {
+    helperSetStatus("Das aktive Arbeitsfeld ist schreibgeschützt.", "Nur lesen");
+    return null;
+  }
+  if (!isDictation && state.lastResultApplied) {
+    helperSetStatus("Dieses Ergebnis wurde bereits übertragen. Für eine neue Übernahme den Text zuerst ändern oder die Aktion erneut starten.", "Bereits übertragen");
+    return null;
+  }
+  if (state.transferInFlight) return null;
+  state.transferInFlight = true;
+  setMiniInsertState();
+  const existingSource = String(sourceText ?? (state.helperSourceText || state.lastSourceText || "")).trim();
+  const appendText = append && existingSource && !/[\r\n]\s*$/.test(existingSource) ? `\n\n${textToInsert}` : textToInsert;
+  await window.radimoAgent.setHelperFocusable(false);
+  helperSetStatus(
+    isDictation ? "Diktat wird eingesetzt…" : append ? "Beurteilung wird ergänzt…" : automatic ? "Ergebnis wird im externen Feld ersetzt…" : "Geprüftes Ergebnis wird eingesetzt…",
+    append ? "Ergänzen" : automatic ? "Ersetzen" : "Einfügen",
+  );
+  try {
+    await window.radimoAgent.patchWorkflow({
+      phase: "transferring",
+      target: "selected-field",
+      targetIdentity: target,
+    });
+    const response = await window.radimoAgent.writeFocusedField({
+      text: appendText,
+      target: { ...target, append, replaceAll: append || isDictation ? false : target.replaceAll !== false },
+    });
+    if (response?.actualHash && state.focusedTarget && sameTargetIdentity(state.focusedTarget, target)) state.focusedTarget.expectedFieldHash = response.actualHash;
+    if (response?.ok && response.verified) {
+      if (isDictation) state.pendingDictationText = "";
+      if (isDictation) state.pendingDictationTarget = null;
+      if (!isDictation) state.lastResultApplied = true;
+      state.helperSourceText = append ? [existingSource, textToInsert].filter(Boolean).join("\n\n") : textToInsert;
+      helperSetStatus(append ? "Beurteilung ergänzt und Zielfeld verifiziert." : automatic ? "Ergebnis direkt ersetzt und Zielfeld verifiziert." : "Eingesetzt und Zielfeld verifiziert.", "Verifiziert");
+      setMiniDictationState("idle");
+    } else if (response?.ok) {
+      if (!isDictation) state.lastResultApplied = true;
+      state.helperSourceText = append ? [existingSource, textToInsert].filter(Boolean).join("\n\n") : textToInsert;
+      helperSetStatus(append ? "Beurteilung ergänzt; Zielfeld bitte prüfen." : automatic ? "Ergebnis ersetzt; Zielfeld bitte prüfen." : "Eingesetzt; Zielfeld bitte im Zielprogramm prüfen.", "Prüfung nötig");
+    } else {
+      helperSetStatus(`Einsetzen gestoppt: ${response?.error || "Ziel geändert"}.`, "Prüfung nötig");
+    }
+    if (response?.ok) {
+      await window.radimoAgent.patchWorkflow({
+        phase: "ready",
+        target: "selected-field",
+        targetIdentity: target,
+      });
+    }
+    setMiniInsertState();
+    return response || null;
+  } catch (error) {
+    helperSetStatus(error.message || "Ergebnis konnte nicht eingesetzt werden.", "Prüfung nötig");
+    return null;
+  } finally {
+    state.transferInFlight = false;
+    setMiniInsertState();
+    void window.radimoAgent.setHelperFocusable(Boolean(state.activePanel) || state.settingsOpen);
+  }
+}
+
+async function insertPendingDictation() {
+  await insertTextIntoField(state.pendingDictationText, { isDictation: true, targetOverride: state.pendingDictationTarget });
+}
+
+async function insertReviewResult() {
+  if (state.manualReviewPending) {
+    helperSetStatus("Den Entwurf zuerst im Editor prüfen und zur Ergebnisansicht weitergeben.", "Manuell prüfen");
+    return;
+  }
+  await insertTextIntoField(reviewText(), { append: state.lastResultTask === "assessment", targetOverride: state.lastResultTarget });
+}
+
+async function applyCompletedAgentResult() {
+  const task = state.activeTask;
+  const parsed = parseAgentResult(state.lastAgentText);
+  if (!parsed.valid) {
+    state.lastAgentResult = "";
+    renderAgentNotes(emptyAgentMeta());
+    $("miniReviewText").value = "";
+    helperSetStatus("Antwortformat unklar. Nichts wurde ersetzt.", "Prüfung nötig");
+    appendChatMessage("assistant", "Das Antwortformat war unklar. Ich habe deshalb nichts ersetzt. Bitte im Chat nachfragen oder die Aktion erneut starten.");
+    state.activeTask = "";
+    if (!state.activePanel) openPanel("miniChatDrawer");
+    return;
+  }
+
+  const { text: result, meta } = parsed;
+  state.lastAgentResult = result;
+  state.lastResultTask = task;
+  renderAgentNotes(meta);
+  $("miniReviewText").value = result;
+  renderReviewDiff(state.lastSourceText, result);
+  let response = null;
+  const appended = task === "assessment";
+  const proposal = task === "proposal";
+  const manualReview = proposal || Boolean(state.actionSettings?.[task]?.manualReview);
+  const operationTarget = state.lastResultTarget;
+  const targetUnchanged = Boolean(operationTarget?.windowHandle && state.fieldLocked && sameTargetIdentity(state.focusedTarget, operationTarget));
+  if (targetUnchanged && !manualReview) response = await insertTextIntoField(result, { automatic: true, append: appended, targetOverride: operationTarget, sourceText: state.lastSourceText });
+  if (manualReview) {
+    state.manualReviewPending = true;
+    openResultEditor(result);
+  }
+  const transferred = Boolean(response?.ok);
+  const verified = transferred && response.verified === true;
+  if (!manualReview && operationTarget?.windowHandle && !targetUnchanged) helperSetStatus("Das Arbeitsfeld wurde während der Anfrage geändert. Nichts wurde übertragen.", "Zielfeld geändert");
+  if (!manualReview && !response?.ok && !operationTarget?.windowHandle && !(state.focusedTarget?.windowHandle && state.fieldLocked)) helperSetStatus("Ergebnis bereit. Externes Arbeitsfeld aktivieren.", "Feld fehlt");
+  if (proposal) appendChatProposal(result);
+  else appendChatMessage("assistant", formatResultMeta(task, meta, {
+      activeTarget: targetUnchanged,
+      transferred,
+      verified,
+      replaced: verified && !appended,
+      appended: verified && appended,
+      manualReview,
+    }));
+  if (transferred) {
+    void window.radimoAgent.addWorkflowArtifact({
+      kind: verified ? "result" : "draft",
+      label: verified ? (appended ? "Beurteilung ergänzt" : "Direkt eingesetzt") : "Übertragung prüfen",
+      detail: verified ? (appended ? "Beurteilung im verifizierten externen Zielfeld ergänzt" : "Ergebnis im verifizierten externen Zielfeld ersetzt") : "Übertragung ins externe Zielfeld nicht verifiziert",
+      text: result,
+    }).catch(() => {});
+  } else if (!targetUnchanged) {
+    void window.radimoAgent.addWorkflowArtifact({
+      kind: "draft",
+      label: "Antwortentwurf",
+      detail: "Externes Feld nicht aktiviert",
+      text: result,
+    }).catch(() => {});
+  }
+  state.activeTask = "";
+  setMiniInsertState();
+  if (!state.activePanel && !manualReview) openPanel("miniChatDrawer");
+}
+
+function setMiniDictationState(mode) {
+  const button = $("miniDictate");
+  const icon = $("miniDictateIcon")?.querySelector("use");
+  if (!button) return;
+  button.classList.toggle("recording", mode === "recording");
+  button.classList.toggle("is-ready", mode === "ready");
+  if (icon) icon.setAttribute("href", mode === "recording" ? "#icon-stop" : mode === "ready" ? "#icon-insert" : "#icon-mic");
+  text("miniDictateLabel", mode === "recording" ? "Stoppen" : mode === "ready" ? "Einsetzen" : "Diktat");
+  text("miniDictateHint", mode === "recording" ? "Aufnahme" : mode === "ready" ? "ins Feld" : "starten");
+  const label = mode === "recording" ? "Diktataufnahme stoppen" : mode === "ready" ? "Aufgenommenes Diktat ins Arbeitsfeld einsetzen" : "Diktat starten";
+  button.title = label;
+  button.setAttribute("aria-label", label);
+}
+
+function recordingMimeType() {
+  return ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"].find((type) => MediaRecorder.isTypeSupported(type)) || "";
+}
+
+function resetRecordingUi() {
+  $("dictationMonitor")?.classList.add("hidden");
+  if ($("dictationLevel")) $("dictationLevel").style.width = "2%";
+  text("dictationElapsed", "00:00");
+}
+
+function startRecordingMonitor(recording) {
+  const monitor = $("dictationMonitor");
+  if (!monitor) return;
+  monitor.classList.remove("hidden");
+  recording.startedAt = performance.now();
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (AudioContext) {
+      recording.audioContext = new AudioContext();
+      recording.analyser = recording.audioContext.createAnalyser();
+      recording.analyser.fftSize = 256;
+      recording.audioData = new Uint8Array(recording.analyser.fftSize);
+      const source = recording.audioContext.createMediaStreamSource(recording.stream);
+      source.connect(recording.analyser);
+    }
+  } catch { recording.analyser = null; }
+  const render = () => {
+    if (state.recording !== recording) return;
+    const elapsed = Math.floor((performance.now() - recording.startedAt) / 1000);
+    text("dictationElapsed", `${String(Math.floor(elapsed / 60)).padStart(2, "0")}:${String(elapsed % 60).padStart(2, "0")}`);
+    if (recording.analyser) {
+      recording.analyser.getByteTimeDomainData(recording.audioData);
+      const sum = recording.audioData.reduce((total, value) => total + ((value - 128) / 128) ** 2, 0);
+      $("dictationLevel").style.width = `${Math.min(100, Math.max(2, Math.sqrt(sum / recording.audioData.length) * 360))}%`;
+    }
+    recording.animation = window.requestAnimationFrame(render);
+  };
+  recording.animation = window.requestAnimationFrame(render);
+}
+
+function stopRecordingMonitor(recording) {
+  if (recording?.animation) window.cancelAnimationFrame(recording.animation);
+  if (recording?.audioContext) void recording.audioContext.close().catch(() => {});
+  resetRecordingUi();
+}
+
+async function miniStartDictation() {
+  if (state.recording?.recorder?.state === "recording") {
+    state.recording.recorder.stop();
+    return;
+  }
+  if (state.pendingDictationText.trim()) {
+    await insertPendingDictation();
+    return;
+  }
+  const target = state.focusedTarget?.windowHandle ? state.focusedTarget : await miniCaptureField();
+  if (!target?.windowHandle) {
+    helperSetStatus("Zuerst den Cursor im Zielprogramm setzen. Diktat wird erst nach Bestätigung eingesetzt.", "Feld fehlt");
+    return;
+  }
+  await refreshOpenAIStatus();
+  if (!state.openAIConfigured) {
+    openSettings();
+    helperSetStatus("Für Diktat zuerst einen OpenAI-API-Schlüssel hinterlegen.", "Einrichtung nötig");
+    return;
+  }
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+    helperSetStatus("Diese Windows-Laufzeit kann kein Mikrofon aufnehmen.", "Nicht verfügbar");
+    return;
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: true, autoGainControl: true }, video: false });
+    const mimeType = recordingMimeType();
+    const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+    const recording = { recorder, stream, chunks: [], timer: null, cancelled: false, target: { ...target } };
+    state.recording = recording;
+    recorder.addEventListener("dataavailable", (event) => { if (event.data?.size) recording.chunks.push(event.data); });
+    recorder.addEventListener("error", (event) => helperSetStatus(`Mikrofonfehler: ${event.error?.message || "Aufnahme abgebrochen"}`, "Prüfung nötig"));
+    recorder.addEventListener("stop", async () => {
+      window.clearTimeout(recording.timer);
+      for (const track of stream.getTracks()) track.stop();
+      stopRecordingMonitor(recording);
+      state.recording = null;
+      if (recording.cancelled) { setMiniDictationState("idle"); helperSetStatus("Diktat verworfen. Das Arbeitsfeld blieb unverändert.", "Abgebrochen"); return; }
+      if (!recording.chunks.length) { setMiniDictationState("idle"); helperSetStatus("Keine Audiodaten aufgenommen.", "Leer"); return; }
+      helperSetStatus("Diktat wird transkribiert…", "Transkription");
+      try {
+        const blob = new Blob(recording.chunks, { type: recorder.mimeType || "audio/webm" });
+        const result = await window.radimoAgent.transcribeAudio({ bytes: await blob.arrayBuffer(), mimeType: blob.type });
+        state.pendingDictationText = String(result.text || "").trim();
+        state.helperSourceText = state.pendingDictationText;
+        state.pendingDictationTarget = state.pendingDictationText ? { ...recording.target } : null;
+        setMiniDictationState(state.pendingDictationText ? "ready" : "idle");
+        syncDiscussionScope();
+        helperSetStatus(state.pendingDictationText ? "Diktat bereit. Einsetzen bleibt eine separate Bestätigung." : "Leere Transkription erhalten.", state.pendingDictationText ? "Einfügen bereit" : "Leer");
+      } catch (error) {
+        setMiniDictationState("idle");
+        helperSetStatus(error.message || "Diktat konnte nicht transkribiert werden.", "Prüfung nötig");
+      }
+    });
+    recorder.start(1000);
+    startRecordingMonitor(recording);
+    recording.timer = window.setTimeout(() => { if (recorder.state === "recording") recorder.stop(); }, 120000);
+    setMiniDictationState("recording");
+    helperSetStatus("Mikrofon aktiv. Erneut klicken zum Stoppen; Grenze: 2 Minuten.", "Aufnahme");
+  } catch (error) {
+    if (stream) for (const track of stream.getTracks()) track.stop();
+    stopRecordingMonitor(state.recording);
+    state.recording = null;
+    setMiniDictationState("idle");
+    helperSetStatus(error.name === "NotAllowedError" ? "Mikrofonzugriff abgelehnt. Windows-Datenschutz prüfen." : (error.message || "Mikrofon konnte nicht gestartet werden."), "Prüfung nötig");
+  }
+}
+
+function contextPrompt() {
+  if (!state.contextReport || !$("useContext")?.checked) return "";
+  const blocks = state.contextReport.items.map((item) => `### ${item.relation} · ${item.section} · ${item.name}\n${item.content || item.preview}`).join("\n\n");
+  return `\n\n[EXPLICITLY ATTACHED LOCAL CONTEXT]\n${blocks}\n[/EXPLICITLY ATTACHED LOCAL CONTEXT]`;
+}
+
+function referencePrompt() {
+  if (!state.referencePack.length || !$("useLocalReferences")?.checked) return "";
+  const readable = state.referencePack.filter((item) => item.status === "ready" && item.content);
+  if (!readable.length) return "";
+  const blocks = readable.map((item) => item.sourceType === "clinic" && item.prompt ? item.prompt : [
+    `### ${item.sourceType === "web" ? "WEB REFERENCE" : "LOCAL REFERENCE"} · ${item.name || item.url}`,
+    item.sourceType === "web" ? `Source URL: ${item.url}` : `Source filename: ${item.name}`,
+    item.content,
+    `### END REFERENCE · ${item.name || item.url}`,
+  ].join("\n"));
+  return `\n\n[EXPLICITLY ATTACHED LOCAL RADIOLOGY REFERENCES]\nUse only the readable text below as local reference material. Do not claim to have read a metadata-only or binary file.\n${blocks.join("\n\n")}\n[/EXPLICITLY ATTACHED LOCAL RADIOLOGY REFERENCES]`;
+}
+
+function renderClinicCatalog(catalog) {
+  state.clinicCatalog = catalog || { root: null, clinics: [] };
+  const select = $("clinicSelect");
+  const clinics = state.clinicCatalog.clinics || [];
+  if (!select) return;
+  select.replaceChildren();
+  for (const clinic of clinics) {
+    const option = document.createElement("option");
+    option.value = clinic.id;
+    option.textContent = clinic.name;
+    select.append(option);
+  }
+  if (clinics.length) {
+    if (!clinics.some((clinic) => clinic.id === state.selectedClinicId)) state.selectedClinicId = clinics[0].id;
+    select.value = state.selectedClinicId;
+  } else state.selectedClinicId = "";
+  text("clinicSourceBadge", clinics.length ? `${clinics.length} Klinik${clinics.length === 1 ? "" : "en"}` : "Keine");
+  text("clinicRootStatus", state.clinicCatalog.root ? `Ordner: ${state.clinicCatalog.root}` : "Kein Klinikordner");
+  const list = $("clinicSourceItems");
+  if (!list) return;
+  list.replaceChildren();
+  const clinic = clinics.find((item) => item.id === state.selectedClinicId);
+  if (!clinic) { list.textContent = "Keine Klinik ausgewählt oder noch keine PDFs in sources/."; return; }
+  if (!clinic.sources.length) { list.textContent = "Keine PDFs in diesem Klinikordner."; return; }
+  for (const source of clinic.sources) {
+    const node = document.createElement("article");
+    node.className = "clinic-source-item";
+    node.innerHTML = "<strong></strong><small></small><div class=\"reference-actions\"></div>";
+    node.querySelector("strong").textContent = source.name;
+    node.querySelector("small").textContent = `${source.relativePath} · ${Math.round(source.size / 1024)} KB`;
+    const actions = node.querySelector(".reference-actions");
+    const read = document.createElement("button");
+    read.className = "mini-panel-button";
+    read.type = "button";
+    read.textContent = source.status === "referenced" ? "Erneut lesen" : "Lesen";
+    read.addEventListener("click", () => { void readClinicSource(source); });
+    actions.append(read);
+    list.append(node);
+  }
+}
+
+async function loadClinicSources() {
+  try { renderClinicCatalog(await window.radimoAgent.getClinicSources()); } catch (error) { text("clinicRootStatus", error.message || "Klinikquellen nicht verfügbar"); }
+}
+
+async function loadWritingResources() {
+  try {
+    const [profile, library] = await Promise.all([window.radimoAgent.getGuidanceStatus(), window.radimoAgent.getTemplateStatus()]);
+    text("guidanceBadge", profile?.label || "Deutsch / Latein");
+    const select = $("templateSelect");
+    if (select) {
+      select.replaceChildren();
+      for (const template of library?.templates || []) {
+        const option = document.createElement("option");
+        option.value = template.id;
+        option.textContent = template.label;
+        select.append(option);
+      }
+    }
+    text("templateStatus", `${library?.templates?.length || 0} Vorlage(n) bereit.`);
+  } catch (error) {
+    text("guidanceStatus", error.message || "Schreibprofil konnte nicht geladen werden.");
+  }
+}
+
+async function chooseClinicRoot() {
+  try {
+    const catalog = await window.radimoAgent.chooseClinicSourceRoot();
+    if (catalog) { renderClinicCatalog(catalog); showToast("Klinikquellen aktualisiert."); }
+  } catch (error) { text("clinicRootStatus", error.message || "Klinikordner konnte nicht gewählt werden."); }
+}
+
+async function openClinicRoot() {
+  try { await window.radimoAgent.openClinicSourceRoot(); } catch (error) { text("clinicRootStatus", error.message || "Klinikordner konnte nicht geöffnet werden."); }
+}
+
+async function readClinicSource(source) {
+  text("clinicRootStatus", `${source.name} wird gelesen…`);
+  try {
+    const item = await window.radimoAgent.readClinicSource({ clinicId: state.selectedClinicId, sourcePath: source.path });
+    if (item.status !== "ready" || !item.content) { renderClinicCatalog(item.catalog); showToast("PDF konnte nicht als Text gelesen werden."); return; }
+    state.referencePack = [...state.referencePack.filter((entry) => entry.path !== item.path), { ...item, sourceType: "clinic" }];
+    renderReferences(state.referencePack);
+    $("useLocalReferences").checked = false;
+    renderClinicCatalog(item.catalog);
+    showToast("Quelle gelesen und für die nächste Anfrage bereit.");
+  } catch (error) { text("clinicRootStatus", error.message || "Klinikquelle konnte nicht gelesen werden."); }
+}
+
+function renderReferences(pack) {
+  state.referencePack = Array.isArray(pack) ? pack : [];
+  const readable = state.referencePack.filter((item) => item.status === "ready" && item.content).length;
+  const toggle = $("useLocalReferences");
+  if (toggle) { toggle.disabled = readable === 0; if (!readable) toggle.checked = false; }
+  if ($("clearReferences")) $("clearReferences").disabled = state.referencePack.length === 0;
+  text("referenceBadge", state.referencePack.length ? `${readable} bereit` : "Keine");
+  const list = $("referenceItems");
+  if (list) { list.replaceChildren(); for (const item of state.referencePack) { const node = document.createElement("div"); node.textContent = `${item.name || item.url} · ${item.status}`; list.append(node); } }
+  text("referenceStatus", state.referencePack.length ? `${readable} lesbare Quelle(n) bereit.` : "Keine lokalen Quellen ausgewählt.");
+}
+
+async function chooseReferences() {
+  try { const pack = await window.radimoAgent.chooseReferences(); if (pack) { renderReferences(pack); showToast("Lokale Quellen aktualisiert."); } } catch (error) { text("referenceStatus", error.message || "Quellen konnten nicht ausgewählt werden."); }
+}
+
+async function fetchReferenceUrl() {
+  const input = $("referenceUrl");
+  const url = input?.value.trim();
+  if (!url) return;
+  try { const reference = await window.radimoAgent.fetchReferenceUrl(url); renderReferences([...state.referencePack, reference]); input.value = ""; showToast("Quelle für die nächste Anfrage bereit."); } catch (error) { text("referenceStatus", error.message || "Quelle konnte nicht geladen werden."); }
+}
+
+function clearReferences() {
+  renderReferences([]);
+}
+
+async function captureScreen() {
+  text("screenCaptureStatus", "Bildschirmbereich auswählen…");
+  try {
+    const result = await window.radimoAgent.captureScreen();
+    if (!result?.ok) { text("screenCaptureStatus", "Aufnahme abgebrochen."); return; }
+    const previousPath = state.screenCapture?.path;
+    state.screenCapture = result;
+    if (previousPath && previousPath !== result.path) void window.radimoAgent.releaseScreenCapture(previousPath).catch(() => {});
+    $("screenCapturePreview").src = result.dataUrl;
+    $("screenCapturePreview").classList.remove("hidden");
+    $("copyScreenCapture").disabled = false;
+    $("useScreenCapture").disabled = false;
+    text("screenCaptureBadge", `${result.width} × ${result.height}`);
+    text("screenCaptureStatus", "Lokal erfasst. Vor dem Senden prüfen.");
+  } catch (error) { text("screenCaptureStatus", error.message || "Bildschirmaufnahme fehlgeschlagen."); }
+}
+
+async function copyScreenCapture() {
+  if (!state.screenCapture?.dataUrl) return;
+  try { await window.radimoAgent.copyScreenCapture(state.screenCapture.dataUrl); showToast("Bildschirmaufnahme kopiert."); } catch (error) { text("screenCaptureStatus", error.message || "Bild konnte nicht kopiert werden."); }
+}
+
+function isApiBackend() {
+  return state.backend === "api";
+}
+
+function applyBackendUi(status = {}) {
+  if (status.backend) state.backend = status.backend;
+  if (status.provider) state.apiProvider = status.provider;
+  const api = isApiBackend();
+  const separateDictation = api && status.provider === "azure";
+  state.apiConfigLocks = { provider: Boolean(status.providerLocked), authMode: Boolean(status.authModeLocked), endpoint: Boolean(status.endpointLocked), model: Boolean(status.modelLocked), audioDeployment: Boolean(status.audioDeploymentLocked) };
+  $("agentApiConfigFields")?.classList.toggle("hidden", !api);
+  const azure = api && status.provider === "azure";
+  $("agentApiAuthModeField")?.classList.toggle("hidden", !azure);
+  $("agentApiAudioDeploymentField")?.classList.toggle("hidden", !separateDictation);
+  $("agentDictationPanel")?.classList.toggle("hidden", !separateDictation);
+  $("usageBudgetPanel")?.classList.toggle("hidden", !api);
+  $("loginButton")?.classList.toggle("hidden", api);
+  text("loginTitle", api ? "API-Verbindung" : "AI und Diktat");
+  text("connectionNote", api
+    ? "Text und Diktat laufen über die direkte API. OpenAI und Azure OpenAI werden unterstützt; Azure kann ein eigenes Audio-Deployment nutzen und bietet einen OpenAI-Key als Fallback."
+    : "Textfunktionen verwenden die lokale ChatGPT-Anmeldung. Für Mikrofon-Diktat wird separat ein OpenAI-API-Schlüssel benötigt.");
+  text("logoutButton", api ? "API-Key entfernen" : "Abmelden");
+  text("openaiApiLabel", api ? `${status.provider === "azure" ? "Azure OpenAI" : "OpenAI API"} · Text` : "OpenAI API · Diktat");
+  text("saveOpenAIKey", api ? "Key speichern" : "Sicher speichern");
+  text("testOpenAIReadiness", api ? "API & Mikrofon testen" : "Diktatbereitschaft testen");
+  $("openOpenAIKeys")?.classList.toggle("hidden", api && status.provider === "azure");
+  if ($("openaiApiKey")) $("openaiApiKey").placeholder = api && status.provider === "azure" ? "Azure-Key oder Bearer-Token…" : "sk-…";
+  if ($("agentApiProvider") && status.provider) $("agentApiProvider").value = status.provider;
+  if ($("agentApiAuthMode") && azure && status.authMode && document.activeElement !== $("agentApiAuthMode")) $("agentApiAuthMode").value = status.authMode;
+  if ($("agentApiEndpoint") && status.endpoint !== undefined && document.activeElement !== $("agentApiEndpoint")) $("agentApiEndpoint").value = status.endpoint;
+  if ($("agentApiModel") && status.model !== undefined && document.activeElement !== $("agentApiModel")) $("agentApiModel").value = status.model;
+  if ($("agentApiAudioDeployment") && status.audioDeployment !== undefined && document.activeElement !== $("agentApiAudioDeployment")) $("agentApiAudioDeployment").value = status.audioDeployment;
+  if ($("agentApiProvider")) $("agentApiProvider").disabled = !api || state.apiConfigLocks.provider;
+  if ($("agentApiAuthMode")) $("agentApiAuthMode").disabled = !azure || state.apiConfigLocks.authMode;
+  if ($("agentApiEndpoint")) $("agentApiEndpoint").disabled = !api || state.apiConfigLocks.endpoint;
+  if ($("agentApiModel")) $("agentApiModel").disabled = !api || state.apiConfigLocks.model;
+  if ($("agentApiAudioDeployment")) $("agentApiAudioDeployment").disabled = !separateDictation || state.apiConfigLocks.audioDeployment;
+}
+
+function formatTokenCount(value) {
+  return Math.max(0, Number(value) || 0).toLocaleString("de-DE");
+}
+
+function renderUsageStatus(usage) {
+  if (!usage?.enabled) {
+    text("usageBudgetStatus", usage?.message || "Vom Anbieter verwaltet.");
+    return;
+  }
+  const daily = usage.daily || {};
+  const monthly = usage.monthly || {};
+  const cost = usage.pricingKnown === false ? "Kosten nicht verlässlich geschätzt" : `ca. €${Number(monthly.estimatedEur || 0).toFixed(2)} (Schätzung)`;
+  text("usageBudgetStatus", `Heute ${formatTokenCount(daily.tokens)} / ${formatTokenCount(usage.limits?.dailyTokens)} · Monat ${formatTokenCount(monthly.tokens)} / ${formatTokenCount(usage.limits?.monthlyTokens)} · ${cost}`);
+}
+
+async function refreshUsageStatus() {
+  try {
+    const usage = await window.radimoAgent.getUsageStatus();
+    renderUsageStatus(usage);
+    return usage;
+  } catch (error) {
+    text("usageBudgetStatus", error.message || "Budgetstatus nicht verfügbar.");
+    return null;
+  }
+}
+
+async function refreshOpenAIStatus() {
+  try {
+    if (isApiBackend()) {
+      const status = await window.radimoAgent.getAgentApiStatus();
+      applyBackendUi(status);
+      state.openAIConfigured = Boolean(status?.dictationConfigured ?? status?.configured);
+      const provider = status.provider === "azure" ? "Azure OpenAI" : "OpenAI";
+      const source = status.source === "environment" ? "Umgebungsvariable" : status.source ? "Windows-verschlüsselt" : "noch nicht eingerichtet";
+      const dictation = status?.dictationMode === "azure" ? "Azure-Diktat bereit" : status?.dictationConfigured ? "OpenAI-Diktat bereit" : provider === "Azure OpenAI" ? "Audio-Deployment oder OpenAI-Key fehlt" : "Diktat noch nicht bereit";
+      text("openaiApiStatus", status?.configured ? `${provider} bereit · ${status.model || "Deployment fehlt"} · ${source} · ${dictation}` : status?.encryptionAvailable ? "Noch nicht eingerichtet. Der Key wird Windows-verschlüsselt gespeichert." : "Windows-Verschlüsselung nicht verfügbar.");
+      if ($("clearOpenAIKey")) $("clearOpenAIKey").disabled = !status?.configured || status.source === "environment";
+      if (status.provider === "azure") {
+        text("agentDictationStatus", status.dictationMode === "azure" ? `Azure-Diktat bereit · ${status.audioDeployment}` : status.dictationConfigured ? `OpenAI-Diktat bereit · ${status.dictationSource === "environment" ? "Umgebungsvariable" : "Windows-verschlüsselt"}` : status.dictationEncryptionAvailable ? "Audio-Deployment konfigurieren oder separaten OpenAI-Key hinterlegen." : "Windows-Verschlüsselung nicht verfügbar.");
+        if ($("clearAgentDictationKey")) $("clearAgentDictationKey").disabled = status.dictationMode !== "openai" || status.dictationSource === "environment";
+      }
+      renderUsageStatus(status.usage);
+      return status;
+    }
+    const status = await window.radimoAgent.getOpenAIStatus();
+    applyBackendUi({ backend: "codex" });
+    state.openAIConfigured = Boolean(status?.configured);
+    text("openaiApiStatus", status?.configured ? `Diktat bereit · ${status.transcriptionModel} · ${status.source === "environment" ? "Umgebungsvariable" : "Windows-verschlüsselt"}` : status?.encryptionAvailable ? "Noch nicht eingerichtet. Der Schlüssel wird Windows-verschlüsselt gespeichert." : "Windows-Verschlüsselung nicht verfügbar.");
+    if ($("clearOpenAIKey")) $("clearOpenAIKey").disabled = !status?.configured || status.source === "environment";
+    return status;
+  } catch (error) { state.openAIConfigured = false; text("openaiApiStatus", error.message || "API-Status konnte nicht geprüft werden."); return null; }
+}
+
+async function saveAgentApiConfig() {
+  try {
+    const result = await window.radimoAgent.setAgentApiConfig({ provider: $("agentApiProvider")?.value || "openai", authMode: $("agentApiAuthMode")?.value || "api-key", endpoint: $("agentApiEndpoint")?.value.trim() || "", model: $("agentApiModel")?.value.trim() || "", audioDeployment: $("agentApiAudioDeployment")?.value.trim() || "" });
+    applyBackendUi(result.status || result);
+    await refreshOpenAIStatus();
+    await loadModels();
+    text("loginStatus", "API-Konfiguration gespeichert.");
+  } catch (error) { text("loginStatus", error.message || "API-Konfiguration konnte nicht gespeichert werden."); }
+}
+
+async function saveOpenAIKey() {
+  const value = $("openaiApiKey")?.value.trim();
+  if (!value) { text("openaiApiStatus", "API-Key eingeben."); return; }
+  try {
+    if (isApiBackend()) await window.radimoAgent.setAgentApiKey({ value, authMode: $("agentApiAuthMode")?.value || "api-key" });
+    else await window.radimoAgent.setOpenAIKey(value);
+    $("openaiApiKey").value = "";
+    await refreshOpenAIStatus();
+    await loadModels();
+  } catch (error) { text("openaiApiStatus", error.message || "API-Key konnte nicht gespeichert werden."); }
+}
+
+async function clearOpenAIKey() {
+  try {
+    if (isApiBackend()) await window.radimoAgent.clearAgentApiKey();
+    else await window.radimoAgent.clearOpenAIKey();
+    await refreshOpenAIStatus();
+  } catch (error) { text("openaiApiStatus", error.message || "API-Key konnte nicht entfernt werden."); }
+}
+
+async function saveAgentDictationKey() {
+  const value = $("agentDictationKey")?.value.trim();
+  if (!value) { text("agentDictationStatus", "OpenAI-Diktat-Key eingeben."); return; }
+  try {
+    await window.radimoAgent.setOpenAIKey(value);
+    $("agentDictationKey").value = "";
+    await refreshOpenAIStatus();
+  } catch (error) { text("agentDictationStatus", error.message || "Diktat-Key konnte nicht gespeichert werden."); }
+}
+
+async function clearAgentDictationKey() {
+  try {
+    await window.radimoAgent.clearOpenAIKey();
+    await refreshOpenAIStatus();
+  } catch (error) { text("agentDictationStatus", error.message || "Diktat-Key konnte nicht entfernt werden."); }
+}
+
+async function testOpenAIReadiness() {
+  text("openaiApiStatus", isApiBackend() ? "API und Mikrofon werden geprüft…" : "OpenAI-Modellzugriff und Mikrofon werden geprüft…");
+  let stream;
+  try {
+    if (isApiBackend() && state.apiProvider === "azure") {
+      const status = await window.radimoAgent.getAgentApiStatus();
+      if (!status?.dictationConfigured) throw new Error("Azure OpenAI ist für Text bereit. Für Diktat ein Audio-Deployment oder einen OpenAI-Key hinterlegen.");
+    }
+    const result = isApiBackend() ? await window.radimoAgent.testAgentApi() : await window.radimoAgent.testOpenAI();
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const track = stream.getAudioTracks()[0];
+    text("openaiApiStatus", `Bereit · ${result.model || "API"} erreichbar · Mikrofon „${track?.label || "Windows-Audioeingang"}“ verfügbar.`);
+  } catch (error) {
+    text("openaiApiStatus", error.name === "NotAllowedError" ? "Mikrofonzugriff abgelehnt. Windows-Datenschutz prüfen." : error.name === "NotFoundError" ? "Kein Mikrofon gefunden." : (error.message || "API-/Diktatbereitschaft konnte nicht geprüft werden."));
+  } finally { if (stream) for (const track of stream.getTracks()) track.stop(); }
+}
+
+async function refreshShortcutStatus({ retry = false } = {}) {
+  try {
+    const status = retry ? await window.radimoAgent.retryShortcuts() : await window.radimoAgent.getShortcutStatus();
+    if (status.ready) { text("shortcutStatus", "Bereit · Ein/Aus, Diktat und Feld holen sind systemweit registriert."); return status; }
+    const names = { toggle: "Ein/Aus", dictation: "Diktat", capture: "Feld holen" };
+    const unavailable = Object.entries(status.shortcuts || {}).filter(([, item]) => !item.registered).map(([name]) => names[name] || name);
+    text("shortcutStatus", `Belegt: ${unavailable.join(", ") || "unbekannt"}. Andere Versionen schließen und neu prüfen.`);
+    return status;
+  } catch (error) { text("shortcutStatus", error.message || "Shortcutstatus konnte nicht geprüft werden."); return null; }
+}
+
+async function refreshConnection() {
+  try {
+    const status = await window.radimoAgent.getStatus();
+    applyBackendUi(status);
+    state.loggedIn = Boolean(status?.authMethod);
+    setMiniConnectionState(state.loggedIn);
+    if (!state.working) helperSetStatus(state.loggedIn ? "Bereit für das nächste Arbeitsfeld." : isApiBackend() ? "API-Key in den Einstellungen hinterlegen." : "Konto öffnen, um Textfunktionen zu starten.", state.loggedIn ? "Bereit" : "Anmeldung nötig");
+    if (isApiBackend()) void refreshUsageStatus();
+    return status;
+  } catch (error) { setMiniConnectionState(false); if (!state.working) helperSetStatus(error.message || "Lokaler Agent nicht verfügbar.", "Nicht verfügbar"); }
+}
+
+async function loadModels() {
+  try {
+    const result = await window.radimoAgent.listModels();
+    state.models = result?.data || [];
+    state.selectedModel = preferredModelId(state.models);
+  } catch { state.models = []; state.selectedModel = DEFAULT_HELPER_MODEL; }
+}
+
+async function login() {
+  if (isApiBackend()) { openSettings(); return; }
+  text("loginStatus", "Browser-Anmeldung wird geöffnet…");
+  try { await window.radimoAgent.startBrowserLogin(); text("loginStatus", "Anmeldung im Browser abschließen und hierher zurückkehren."); } catch (error) { text("loginStatus", error.message || "Anmeldung konnte nicht gestartet werden."); }
+}
+
+async function logout() {
+  try { await window.radimoAgent.logout(); state.loggedIn = false; await refreshConnection(); text("loginStatus", "Abgemeldet."); } catch (error) { text("loginStatus", error.message || "Abmeldung konnte nicht abgeschlossen werden."); }
+}
+
+function contextReportText() {
+  if (!state.contextReport) return "";
+  const report = state.contextReport;
+  return ["ReportHalo Kontextbericht", `Erstellt: ${report.generatedAt}`, `Anker: ${report.source.path}`, `Strategie: ${report.strategy}`, "", ...report.items.flatMap((item) => [`## ${item.relation} · ${item.section} · ${item.name}`, item.content || item.preview, ""])].join("\n");
+}
+
+function renderContext(report) {
+  state.contextReport = report;
+  text("contextSource", report ? report.source.path : "Keine Quelle");
+  $("saveContext").disabled = !report;
+  $("copyContext").disabled = !report;
+  $("useContext").disabled = !report;
+  if (!report) $("useContext").checked = false;
+  const selected = report?.items?.find((item) => item.relation === "selected");
+  $("copySelectedField").disabled = !selected?.content;
+  $("prepareCorrection").disabled = !selected?.content;
+  $("selectedField").value = selected?.content || selected?.preview || "";
+  const list = $("contextItems");
+  list.replaceChildren();
+  for (const item of report?.items || []) {
+    const node = document.createElement("article");
+    node.className = `context-item${item.relation === "selected" ? " selected" : ""}`;
+    node.innerHTML = "<div class=\"context-item-head\"><strong></strong><span></span></div><small></small><div class=\"context-preview\"></div>";
+    node.querySelector("strong").textContent = `${item.relation} · ${item.section}`;
+    node.querySelector("span").textContent = `${item.size} bytes`;
+    node.querySelector("small").textContent = item.name;
+    node.querySelector(".context-preview").textContent = item.preview;
+    list.append(node);
+  }
+}
+
+async function chooseContext() {
+  text("contextStatus", "Quelldatei wählen…");
+  try {
+    const report = await window.radimoAgent.chooseContextSource();
+    if (!report) { text("contextStatus", "Keine Quelle gewählt."); return; }
+    renderContext(report);
+    $("useContext").checked = false;
+    text("contextStatus", `${report.items.length} Nachbarbefunde bereit · Anhängen bitte bewusst aktivieren.`);
+    showToast("Kontext ist bereit.");
+  } catch (error) { text("contextStatus", error.message || "Kontext konnte nicht gelesen werden."); }
+}
+
+async function saveContext() {
+  if (!state.contextReport) return;
+  try { const result = await window.radimoAgent.saveContextReport(state.contextReport); if (result?.filePath) showToast("Kontextbericht gespeichert."); } catch (error) { text("contextStatus", error.message || "Bericht konnte nicht gespeichert werden."); }
+}
+
+async function copyContext() {
+  if (!state.contextReport) return;
+  try { await window.radimoAgent.writeClipboard(contextReportText()); showToast("Kontextbericht kopiert."); } catch (error) { text("contextStatus", error.message || "Bericht konnte nicht kopiert werden."); }
+}
+
+async function copySelectedField() {
+  const value = $("selectedField")?.value.trim();
+  if (!value) return;
+  try { await window.radimoAgent.writeClipboard(value); showToast("Feld kopiert."); } catch (error) { text("contextStatus", error.message || "Feld konnte nicht kopiert werden."); }
+}
+
+function prepareCorrection() {
+  const selected = $("selectedField")?.value.trim();
+  if (!selected) return;
+  state.helperSourceText = selected;
+  state.pendingDictationText = "";
+  if (hasLockedTarget()) {
+    helperSetStatus("Fallmaterial wird nicht in das aktive Arbeitsfeld geschrieben. Erst als Textquelle prüfen.", "Prüfung nötig");
+    return;
+  }
+  state.editorMode = "source";
+  openPanel("miniEditorDrawer");
+  helperSetStatus("Textquelle bereit. Im Chat prüfen.", "Text bereit");
+}
+
+async function copyLastResponse() {
+  const value = reviewText();
+  if (!value) return;
+  try { await window.radimoAgent.writeClipboard(value); showToast("Ergebnis kopiert."); } catch (error) { text("miniReviewStatus", error.message || "Ergebnis konnte nicht kopiert werden."); }
+}
+
+async function saveCorrectionDraft() {
+  const value = reviewText();
+  if (!value || !state.contextReport?.source?.path) return;
+  try { await window.radimoAgent.saveCorrectionDraft({ sourcePath: state.contextReport.source.path, content: value }); showToast("Geprüfter Entwurf gespeichert."); } catch (error) { text("miniReviewStatus", error.message || "Entwurf konnte nicht gespeichert werden."); }
+}
+
+async function copyDiagnostics() {
+  try { const result = await window.radimoAgent.copyDiagnostics(); text("logPath", result?.path ? `Lokales Log: ${result.path}` : "Diagnose kopiert."); showToast("Diagnose kopiert."); } catch (error) { text("loginStatus", error.message || "Diagnose konnte nicht kopiert werden."); }
+}
+
+async function testConnection() {
+  text("loginStatus", isApiBackend() ? "API und Proxy werden geprüft…" : "Proxy und Authentifizierung werden geprüft…");
+  try {
+    const result = await window.radimoAgent.testConnection();
+    if (isApiBackend()) {
+      text("loginStatus", `${result.provider === "azure" ? "Azure OpenAI" : "OpenAI"}: ${result.model || "bereit"} · ${result.reachable ? "erreichbar" : "nicht erreichbar"}`);
+      return;
+    }
+    const status = result.authEndpoint?.reachable ? `HTTP ${result.authEndpoint.status}` : result.authEndpoint?.error || "nicht erreichbar";
+    text("loginStatus", `Proxy: ${result.proxyRules || "nicht gemeldet"} · auth.openai.com: ${status}`);
+  } catch (error) { text("loginStatus", error.message || "Verbindungstest fehlgeschlagen."); }
+}
+
+async function applyProxy() {
+  try {
+    const result = await window.radimoAgent.setProxy({ url: $("proxyOverride").value.trim(), username: $("proxyUsername").value, password: $("proxyPassword").value });
+    text("loginStatus", result.configured ? "Proxy angewendet." : "Proxy-Override entfernt.");
+  } catch (error) { text("loginStatus", error.message || "Proxy konnte nicht geändert werden."); }
+}
+
+function openContext() {
+  openPanel("contextDrawer");
+}
+
+function openResultEditor(value = state.lastAgentResult) {
+  const result = String(value || "").trim();
+  if (!result) return;
+  state.lastAgentResult = result;
+  $("miniReviewText").value = result;
+  renderReviewDiff(state.lastSourceText, result);
+  state.editorMode = "result";
+  $("miniEditorText").value = result;
+  syncMiniEditorMode();
+  if (!isWorkspacePanel()) openPanel("miniEditorDrawer");
+  else $("miniEditorText")?.focus();
+  helperSetStatus("Entwurf im Editor geöffnet. Nach manueller Prüfung zur Ergebnisansicht weitergeben.", "Manuell prüfen");
+}
+
+function applyMiniEditorText() {
+  const value = $("miniEditorText")?.value.trim();
+  if (!value) { helperSetStatus("Das Editorfeld ist leer.", "Leer"); return; }
+  if (state.editorMode === "result") {
+    state.lastAgentResult = value;
+    $("miniReviewText").value = value;
+    renderReviewDiff(state.lastSourceText, value);
+    state.manualReviewPending = false;
+    setMiniInsertState();
+    state.editorMode = "source";
+    openPanel("miniReviewDrawer");
+    helperSetStatus("Manuelle Änderungen übernommen. Ergebnis bitte prüfen und bewusst übernehmen.", "Prüfung nötig");
+    return;
+  }
+  state.helperSourceText = value;
+  state.pendingDictationText = "";
+  if (state.focusedTarget?.windowHandle && state.fieldLocked) {
+    void insertTextIntoField(value, { automatic: true });
+    return;
+  }
+  syncDiscussionScope();
+  helperSetStatus("Textquelle übernommen.", "Text bereit");
+}
+
+async function sendMiniEditor() {
+  const value = $("miniEditorText")?.value.trim();
+  if (!value) { helperSetStatus("Das Editorfeld ist leer.", "Leer"); return; }
+  const resultMode = state.editorMode === "result";
+  if (!resultMode) {
+    state.helperSourceText = value;
+    state.pendingDictationText = "";
+    state.pendingDictationTarget = null;
+  }
+  if (!isWorkspacePanel()) openPanel("miniChatDrawer");
+  appendChatMessage("user", value, { unread: false });
+  state.chatAssistantNode = appendChatMessage("assistant", "", { unread: false });
+  await runAgentAction("discussion", "", value);
+}
+
+async function sendMiniProposal() {
+  if (state.working) return;
+  const input = $("miniChatComposer");
+  const value = input?.value.trim();
+  if (!value) {
+    helperSetStatus("Kurz sagen, was als Vorschlag entstehen soll.", "Eingang fehlt");
+    input?.focus();
+    return;
+  }
+  input.value = "";
+  appendChatMessage("user", `Vorschlag: ${value}`, { unread: false });
+  helperSetStatus("Vorschlag wird im Textfeld vorbereitet…", "Vorschlag");
+  await runAgentAction("proposal", value);
+}
+
+async function sendMiniChat() {
+  if (state.working) return;
+  const input = $("miniChatComposer");
+  const value = input?.value.trim();
+  if (!value) return;
+  input.value = "";
+  appendChatMessage("user", value, { unread: false });
+  state.chatAssistantNode = appendChatMessage("assistant", "", { unread: false });
+  await runAgentAction("discussion", value);
+}
+
+async function copyMiniText() {
+  const value = reviewText() || currentHelperText();
+  if (!value) { helperSetStatus("Noch kein Text zum Kopieren vorhanden.", "Leer"); return; }
+  try { await window.radimoAgent.writeClipboard(value); helperSetStatus("Text in die Zwischenablage kopiert.", "Kopiert"); } catch (error) { helperSetStatus(error.message || "Text konnte nicht kopiert werden.", "Prüfung nötig"); }
+}
+
+function clearMiniTarget() {
+  if (state.working || state.transferInFlight) {
+    helperSetStatus("Die laufende Aktion zuerst abwarten.", "Bitte warten");
+    return;
+  }
+  if (state.recording?.recorder?.state === "recording") { state.recording.cancelled = true; state.recording.recorder.stop(); }
+  state.focusedTarget = null;
+  state.fieldLocked = false;
+  state.helperSourceText = "";
+  state.pendingDictationText = "";
+  state.lastAgentText = "";
+  state.lastSourceText = "";
+  state.lastAgentResult = "";
+  state.lastResultApplied = false;
+  state.lastResultTarget = null;
+  state.manualReviewPending = false;
+  state.pendingDictationTarget = null;
+  state.lastAgentMeta = emptyAgentMeta();
+  state.editorMode = "source";
+  state.workflow = null;
+  $("miniReviewText").value = "";
+  renderReviewDiff("", "");
+  renderAgentNotes(state.lastAgentMeta);
+  renderContext(null);
+  text("contextStatus", "Keine Quelle");
+  renderReferences([]);
+  const capturePath = state.screenCapture?.path;
+  state.screenCapture = null;
+  if (capturePath) void window.radimoAgent.releaseScreenCapture(capturePath).catch(() => {});
+  $("screenCapturePreview")?.classList.add("hidden");
+  $("screenCapturePreview")?.removeAttribute("src");
+  $("copyScreenCapture").disabled = true;
+  $("useScreenCapture").disabled = true;
+  $("useScreenCapture").checked = false;
+  text("screenCaptureBadge", "Keine");
+  text("screenCaptureStatus", "");
+  clearChatView();
+  syncDiscussionScope();
+  void window.radimoAgent.newDiscussion();
+  void window.radimoAgent.patchWorkflow({ phase: "idle", target: "none", targetIdentity: null });
+  setMiniDictationState("idle");
+  helperSetStatus("Bereit für das nächste Arbeitsfeld.", "Bereit");
+}
+
+on("miniDictate", "click", () => { void miniStartDictation(); });
+on("miniCorrection", "click", () => { void runAgentAction("correction"); });
+on("miniWrite", "click", () => { void runAgentAction("write"); });
+on("miniStructure", "click", () => { void runAgentAction("structure"); });
+on("miniAssessment", "click", () => { void runAgentAction("assessment"); });
+on("miniReview", "click", () => {
+  if (state.manualReviewPending) { helperSetStatus("Den Entwurf zuerst im Editor prüfen.", "Manuell prüfen"); return; }
+  if (state.lastAgentResult.trim() || $("miniReviewText")?.value.trim()) openPanel("miniReviewDrawer");
+  else helperSetStatus("Noch kein Ergebnis zum Prüfen vorhanden.", "Leer");
 });
+on("miniInsert", "click", () => { void (state.pendingDictationText.trim() ? insertPendingDictation() : insertReviewResult()); });
+on("miniEditorToggle", "click", () => openPanel("miniEditorDrawer"));
+on("miniContextToggle", "click", openContext);
+on("miniChatToggle", "click", () => openPanel("miniChatDrawer"));
+on("miniEditorUse", "click", applyMiniEditorText);
+on("miniEditorSend", "click", () => { void sendMiniEditor(); });
+on("miniEditorText", "input", (event) => {
+  if (state.editorMode === "source" && !hasLockedTarget()) {
+    state.helperSourceText = event.target.value;
+    state.pendingDictationText = "";
+    syncDiscussionScope();
+    renderMiniTarget();
+  }
+});
+on("miniEditorText", "keydown", (event) => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void sendMiniEditor(); } });
+on("miniChatSend", "click", () => { void sendMiniChat(); });
+on("miniChatPropose", "click", () => { void sendMiniProposal(); });
+on("miniChatComposer", "keydown", (event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendMiniChat(); } });
+on("miniChatNew", "click", () => { void startNewDiscussion(); });
+on("miniReviewCopy", "click", () => { void copyLastResponse(); });
+on("miniReviewInsert", "click", () => { void insertReviewResult(); });
+on("miniReviewDiffToggle", "click", () => { renderReviewDiff(state.lastSourceText, $("miniReviewText")?.value || state.lastAgentResult); setReviewMode("diff"); });
+on("miniReviewEditToggle", "click", () => { setReviewMode("text"); $("miniReviewText")?.focus(); });
+on("miniReviewText", "input", (event) => { state.lastResultApplied = false; renderReviewDiff(state.lastSourceText, event.target.value); setMiniInsertState(); });
+on("miniConfigAction", "change", (event) => { state.configTask = event.target.value; syncMiniConfigPanel(); });
+on("miniConfigClose", "click", closeAttachedPanels);
+on("miniConfigSave", "click", saveMiniConfig);
+on("miniConfigReset", "click", resetMiniConfig);
+on("miniTargetClear", "click", (event) => { event.stopPropagation(); clearMiniTarget(); });
+on("miniCapture", "click", () => { void miniCaptureField(); });
+on("miniTargetCell", "dragover", (event) => { event.preventDefault(); event.currentTarget.classList.add("is-dragging"); });
+on("miniTargetCell", "dragleave", (event) => { if (event.currentTarget === event.target) event.currentTarget.classList.remove("is-dragging"); });
+on("miniTargetCell", "drop", (event) => { event.currentTarget.classList.remove("is-dragging"); handleMiniTargetDrop(event); });
+on("miniContextRun", "click", () => runMiniContextTarget(state.contextMenuTarget));
+on("miniContextSelection", "click", () => { closeMiniContextMenu(); void miniCaptureSelection(); });
+on("miniContextCopy", "click", () => { closeMiniContextMenu(); void copyMiniText(); });
+on("miniContextReset", "click", () => { closeMiniContextMenu(); clearMiniTarget(); });
+on("miniContextConfigure", "click", () => {
+  const definition = MINI_ACTIONS[state.contextMenuTarget];
+  openMiniConfig(definition?.task || state.configTask);
+});
+on("miniContextVisibility", "click", toggleMiniContextVisibility);
+on("miniContextSettings", "click", () => { closeMiniContextMenu(); openSettings(); });
+on("miniContextClose", "click", () => { closeMiniContextMenu(); void window.radimoAgent.setHelperFocusable(false); void window.radimoAgent.hideHelper(); });
+on("miniContextQuit", "click", () => { closeMiniContextMenu(); void window.radimoAgent.quitApp(); });
+on("miniCore", "keydown", (event) => {
+  if (event.key === "Enter" || event.key === " " || (event.key === "F10" && event.shiftKey) || event.key === "ContextMenu") {
+    event.preventDefault();
+    showMiniContextMenu(event, "miniCore");
+  }
+});
+for (const id of Object.keys(MINI_ACTIONS)) on(id, "contextmenu", (event) => showMiniContextMenu(event, id));
+document.addEventListener("click", (event) => {
+  if (!event.target?.closest?.("#miniContextMenu")) closeMiniContextMenu({ restoreFocus: false });
+});
+document.addEventListener("keydown", (event) => {
+  if (handleMiniContextMenuKeydown(event)) return;
+  if (event.key === "Escape") closeMiniContextMenu();
+});
+window.addEventListener("resize", () => { if (state.activePanel) window.requestAnimationFrame(syncPanelConnector); });
+on("closeLogin", "click", closeSettings);
+on("loginButton", "click", () => { void login(); });
+on("logoutButton", "click", () => { void logout(); });
+on("saveOpenAIKey", "click", () => { void saveOpenAIKey(); });
+on("clearOpenAIKey", "click", () => { void clearOpenAIKey(); });
+on("testOpenAIReadiness", "click", () => { void testOpenAIReadiness(); });
+on("saveAgentDictationKey", "click", () => { void saveAgentDictationKey(); });
+on("clearAgentDictationKey", "click", () => { void clearAgentDictationKey(); });
+on("saveAgentApiConfig", "click", () => { void saveAgentApiConfig(); });
+on("agentApiProvider", "change", (event) => { applyBackendUi({ backend: "api", provider: event.target.value }); });
+on("openOpenAIKeys", "click", () => window.radimoAgent.openUrl("https://platform.openai.com/api-keys"));
+on("retryShortcuts", "click", () => { void refreshShortcutStatus({ retry: true }); });
+on("testConnection", "click", () => { void testConnection(); });
+on("copyDiagnostics", "click", () => { void copyDiagnostics(); });
+on("applyProxy", "click", () => { void applyProxy(); });
+on("chooseContext", "click", () => { void chooseContext(); });
+on("copyContext", "click", () => { void copyContext(); });
+on("copySelectedField", "click", () => { void copySelectedField(); });
+on("prepareCorrection", "click", prepareCorrection);
+on("saveContext", "click", () => { void saveContext(); });
+on("copyLastResponse", "click", () => { void copyLastResponse(); });
+on("saveCorrectionDraft", "click", () => { void saveCorrectionDraft(); });
+on("chooseClinicRoot", "click", () => { void chooseClinicRoot(); });
+on("openClinicRoot", "click", () => { void openClinicRoot(); });
+on("clinicSelect", "change", (event) => { state.selectedClinicId = event.target.value; renderClinicCatalog(state.clinicCatalog); });
+on("chooseReferences", "click", () => { void chooseReferences(); });
+on("clearReferences", "click", clearReferences);
+on("fetchReferenceUrl", "click", () => { void fetchReferenceUrl(); });
+on("importGuidance", "click", async () => { try { await window.radimoAgent.importGuidanceProfile(); showToast("Profil importiert."); } catch (error) { text("guidanceStatus", error.message || "Profil konnte nicht importiert werden."); } });
+on("exportGuidance", "click", async () => { try { await window.radimoAgent.exportGuidanceProfile(); showToast("Profil exportiert."); } catch (error) { text("guidanceStatus", error.message || "Profil konnte nicht exportiert werden."); } });
+on("openGuidanceFolder", "click", async () => { try { await window.radimoAgent.openGuidanceFolder(); } catch (error) { text("guidanceStatus", error.message || "Profilordner konnte nicht geöffnet werden."); } });
+on("insertTemplate", "click", async () => { try { const template = await window.radimoAgent.getTemplate($("templateSelect").value); if (template?.content) { if (hasLockedTarget()) { text("templateStatus", "Textquelle nur ohne aktives Arbeitsfeld verfügbar."); return; } state.helperSourceText = [currentHelperText(), template.content.trim()].filter(Boolean).join("\n\n"); openPanel("miniEditorDrawer"); $("miniEditorText").value = state.helperSourceText; } } catch (error) { text("templateStatus", error.message || "Vorlage konnte nicht geladen werden."); } });
+on("captureScreen", "click", () => { void captureScreen(); });
+on("copyScreenCapture", "click", () => { void copyScreenCapture(); });
+on("useContext", "change", () => {});
+on("useLocalReferences", "change", () => {});
+window.radimoAgent.onContextMenu((payload) => showMiniContextMenu(null, payload?.target || "miniCore"));
+updateChatBadge();
+document.addEventListener("keydown", handleDialogKeydown);
 
 window.radimoAgent.onEvent((event) => {
   if (event.method === "account/updated" || event.method === "account/login/completed") {
-    if (event.method === "account/updated" || event.params?.success === true) closeLogin();
-    addActivity(event.params?.success === false ? "Sign-in incomplete" : "Identity updated", "Account state changed", event.params?.success === false);
-    refreshConnection();
+    if (event.method === "account/updated" || event.params?.success === true) closeSettings();
+    void refreshConnection();
   }
   if (event.method === "item/agentMessage/delta") {
-    const message = $("messages").lastElementChild;
-    if (message?.classList.contains("agent")) {
-      state.lastAgentText = (state.lastAgentText === "Working…" ? "" : state.lastAgentText) + (event.params?.delta || "");
-      message.lastElementChild.textContent = state.lastAgentText;
-      $("copyLastResponse").disabled = !state.lastAgentText.trim();
-      $("saveCorrectionDraft").disabled = !state.lastAgentText.trim() || !state.contextReport?.source?.path;
+    state.lastAgentText += String(event.params?.delta || "");
+    if (state.activeTask === "discussion") updateChatAssistant(state.lastAgentText);
+    else setMiniInsertState();
+  }
+  if (event.method === "turn/started") {
+    setMiniWorkingState(true);
+    helperSetStatus("ReportHalo arbeitet…", "Denken");
+  }
+  if (event.method === "turn/completed") {
+    setMiniWorkingState(false);
+    if (isApiBackend()) void refreshUsageStatus();
+    if (state.activeTask === "discussion") {
+      updateChatAssistant(state.lastAgentText.trim() ? state.lastAgentText : "Keine Antwort erhalten.", { immediate: true });
+      state.chatAssistantNode = null;
+      state.activeTask = "";
+      helperSetStatus("Chat bereit.", "Chat");
+    } else {
+      void applyCompletedAgentResult();
     }
-    if (helperMode) {
-      $("helperResult").value = state.lastAgentText;
-      $("helperCopyResult").disabled = !state.lastAgentText.trim();
-      $("helperWriteBack").disabled = !state.lastAgentText.trim() || !state.focusedTarget?.windowHandle;
-    }
   }
-  if (event.method === "turn/started") { setIslandState("Denken"); addActivity("Turn gestartet", "Anfrage vom lokalen App-Server angenommen", true); }
-  if (event.method === "item/started") addActivity("Kontext wird gelesen", "Der Agent prüft die aktuelle Aufgabe", true);
-  if (event.method === "turn/completed") { setIslandState("Bereit"); addActivity("Bereit", "Die Antwort ist vollständig", false); updateEvidenceLedger(state.lastAgentText); const ownsTurn = state.workflow?.origin === (helperMode ? "helper" : "desktop"); if (ownsTurn && state.lastAgentText.trim()) void publishArtifact(helperMode ? "Helfergebnis" : "Antwortentwurf", helperMode ? "Prüfen · kopieren oder ins RIS schreiben" : "Arbeitskopie · nicht automatisch ins RIS geschrieben", helperMode ? "helper-result" : "discussion"); if ($("useScreenCapture").checked) { $("useScreenCapture").checked = false; $("useScreenCapture").disabled = true; $("screenCaptureStatus").textContent = "Bild gesendet; für ein weiteres Bild erneut erfassen."; } if (helperMode) helperSetStatus("Ergebnis bereit. Prüfen und gezielt verwenden.", "Bereit"); refreshConnection(); }
-  if (event.method === "radimoagent/stderr") addActivity("Lokales Signal", event.params?.text || "", false);
+  if (event.method === "radimoagent/stderr") helperSetStatus(event.params?.text || "Lokales Signal.", "Hinweis");
 });
-window.radimoAgent.onReady(() => { addActivity("Arbeitsbereich bereit", "Lokaler App-Server verbunden", false); refreshConnection(); loadModels(); loadClinicSources(); });
-window.radimoAgent.onError((error) => { setStatus(false, "Nicht verfügbar", error.message || "Startfehler"); addActivity("Startproblem", error.message || "Startfehler", true); });
-window.radimoAgent.onWorkflowState((workflow) => applyWorkflowState(workflow));
-window.radimoAgent.getWorkflowState().then((workflow) => applyWorkflowState(workflow)).catch(() => {});
-window.radimoAgent.onWorkflow(async (payload) => {
-  if (!payload?.text) return;
-  if (payload.fresh) {
-    state.messages = [];
-    state.lastAgentText = "";
-    $("messages").replaceChildren();
-    $("messages").innerHTML = `<div class="empty-state"><strong>Fallfrage eingeben</strong></div>`;
+window.radimoAgent.onReady((payload) => { applyBackendUi(payload || {}); void refreshConnection(); void loadModels(); void loadClinicSources(); void loadWritingResources(); });
+window.radimoAgent.onError((error) => helperSetStatus(error.message || "Lokaler Agent nicht verfügbar.", "Nicht verfügbar"));
+window.radimoAgent.onWorkflowState((workflow) => {
+  if (!workflow) return;
+  state.workflow = workflow;
+  if (workflow.targetIdentity?.windowHandle) {
+    state.focusedTarget = { ...workflow.targetIdentity };
+    state.fieldLocked = true;
+  } else if (workflow.target === "none" || workflow.target === "text") {
+    state.focusedTarget = null;
+    state.fieldLocked = false;
   }
-  setAssistantMode(payload.mode || "discussion");
-  if (payload.fieldType) {
-    const label = HELPER_FIELD_LABELS[payload.fieldType] || payload.fieldLabel || "Befund";
-    $("radarTarget").textContent = `Diskussion · ${label}`;
-    addActivity("Arbeitsfeld übernommen", label, false);
-  }
-  $("composer").value = payload.text;
-  $("composer").dispatchEvent(new Event("input"));
-  $("composer").focus();
-  addActivity("Desktop-Fallstream bereit", "Frischer Befunddialog aus dem Helfer geladen", false);
-  showToast("Frischer Desktop-Fallstream bereit.");
+  if (workflow.fieldType) setHelperFieldType(workflow.fieldType);
+  renderMiniTarget();
+  setMiniInsertState();
 });
+window.radimoAgent.onToggleDictation(() => { void miniStartDictation(); });
+window.radimoAgent.onCaptureFocusedField(() => { void miniCaptureField(); });
+window.radimoAgent.getWorkflowState().then((workflow) => { state.workflow = workflow; if (workflow?.targetIdentity?.windowHandle) { state.focusedTarget = { ...workflow.targetIdentity }; state.fieldLocked = true; } renderMiniTarget(); }).catch(() => {});
 
-addActivity("Arbeitsbereich startet", "Lokale Oberfläche wird vorbereitet", true);
 applyGermanUi();
-renderModels();
-setAssistantMode(state.assistantMode);
-setWritingProfile(state.writingProfile);
-loadGuidanceStatus();
-loadTemplateStatus();
-updateEvidenceLedger();
-renderArtifacts();
-setHelperFieldType(state.helperFieldType);
-updateFieldLockUi();
-if (helperMode) {
-  document.title = "RadimoAgent Helfer";
-  helperSetStatus("", "Bereit");
-  setHelperView(window.localStorage?.getItem("radimo-helper-view") || "vertical");
-  enableHelperDragging();
-}
+loadActionSettings();
+renderActionVisibility();
+syncMiniConfigPanel();
+setReviewMode("diff");
+setMiniConnectionState(false);
+renderMiniTarget();
+setMiniDictationState("idle");
+setMiniWorkingState(false);
+helperSetStatus("Arbeitsfeld aktivieren oder Text hineinziehen.", "Bereit");
+void window.radimoAgent.setHelperPanel("base").then(() => window.radimoAgent.setHelperFocusable(false)).catch(() => {});

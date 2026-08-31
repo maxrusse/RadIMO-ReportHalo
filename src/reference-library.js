@@ -6,6 +6,7 @@ const { promisify } = require("node:util");
 const TEXT_EXTENSIONS = new Set([".txt", ".md", ".markdown", ".html", ".htm", ".json", ".csv", ".xml"]);
 const MAX_REFERENCE_BYTES = 2_000_000;
 const MAX_REFERENCE_CHARS = 40_000;
+const MAX_REFERENCE_REDIRECTS = 3;
 const execFileAsync = promisify(execFile);
 const APPROVED_REFERENCE_HOSTS = new Set([
   "radiopaedia.org",
@@ -80,9 +81,17 @@ function validateReferenceUrl(value) {
 }
 
 async function readReferenceUrl(value, fetchImpl = globalThis.fetch) {
-  const url = validateReferenceUrl(value);
+  let url = validateReferenceUrl(value);
   if (typeof fetchImpl !== "function") throw new Error("No local HTTPS fetch capability is available.");
-  const response = await fetchImpl(url, { signal: AbortSignal.timeout(20_000), redirect: "follow" });
+  let response;
+  for (let redirect = 0; redirect <= MAX_REFERENCE_REDIRECTS; redirect += 1) {
+    response = await fetchImpl(url, { signal: AbortSignal.timeout(20_000), redirect: "manual" });
+    if (![301, 302, 303, 307, 308].includes(response.status)) break;
+    if (redirect === MAX_REFERENCE_REDIRECTS) throw new Error("Reference URL redirected too many times.");
+    const location = response.headers?.get?.("location");
+    if (!location) throw new Error("Reference redirect did not provide a destination.");
+    url = validateReferenceUrl(new URL(location, url).toString());
+  }
   if (!response.ok) throw new Error(`Reference returned HTTP ${response.status}.`);
   const contentType = String(response.headers?.get?.("content-type") || "").toLowerCase();
   const declaredLength = Number(response.headers?.get?.("content-length") || 0);
@@ -181,6 +190,7 @@ function formatReferencePack(pack) {
 module.exports = {
   MAX_REFERENCE_BYTES,
   MAX_REFERENCE_CHARS,
+  MAX_REFERENCE_REDIRECTS,
   APPROVED_REFERENCE_HOSTS,
   extractPdfText,
   validateReferenceUrl,
