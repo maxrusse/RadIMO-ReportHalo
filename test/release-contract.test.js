@@ -85,9 +85,12 @@ test("usage budget exposes unknown pricing without blocking token accounting", a
 test("GitHub Pages product page is self-contained and brand-aligned", async () => {
   const page = await fs.readFile(path.join(__dirname, "..", "docs", "index.html"), "utf8");
   assert.match(page, /RadIMO – ReportHalo/);
-  assert.match(page, /ReportHalo Floating Orb/);
+  assert.match(page, /lang="en"/);
+  assert.match(page, /reporthalo-orb-real\.png/);
+  assert.match(page, /reporthalo-workspace-real\.png/);
+  assert.doesNotMatch(page, /reporthalo-(orb|workspace)-preview\.svg/);
   assert.doesNotMatch(page, /<script\b/i);
-  for (const relativePath of ["docs/.nojekyll", "docs/assets/site.css", "docs/assets/reporthalo-mark.svg", "docs/assets/reporthalo-orb-preview.svg", "docs/assets/reporthalo-orb-real.png", "docs/assets/reporthalo-workspace-preview.svg"]) {
+  for (const relativePath of ["docs/.nojekyll", "docs/assets/site.css", "docs/assets/reporthalo-orb-real.png", "docs/assets/reporthalo-workspace-real.png"]) {
     await fs.access(path.join(__dirname, "..", relativePath));
   }
 });
