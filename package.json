@@ -22,10 +22,10 @@
     "start:api": "node scripts/start-api.js",
     "preflight:win": "node scripts/check-windows-payload.js",
     "dist:zip": "node scripts/package-win-zip.js",
-    "dist:win": "npm run preflight:win && electron-builder --win portable && npm run dist:zip",
+    "dist:win": "npm run preflight:win && electron-builder --win portable --publish never && npm run dist:zip",
     "dist:codex": "npm run dist:win",
-    "dist:installer": "npm run preflight:win && electron-builder --win nsis --config scripts/win-installer-config.json",
-    "dist:api": "electron-builder --win portable --config scripts/win-api-config.json"
+    "dist:installer": "npm run preflight:win && electron-builder --win nsis --config scripts/win-installer-config.json --publish never",
+    "dist:api": "electron-builder --win portable --config scripts/win-api-config.json --publish never"
   },
   "devDependencies": {
     "electron": "44.1.0",

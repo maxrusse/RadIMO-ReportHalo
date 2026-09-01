@@ -16,6 +16,9 @@ test("release metadata is pinned and excludes the Codex payload from the app bui
   assert.equal(packageJson.repository.url, "https://github.com/maxrusse/RadIMO-ReportHalo.git");
   assert.equal(packageJson.devDependencies.electron, "44.1.0");
   assert.equal(packageJson.devDependencies["electron-builder"], "26.15.3");
+  assert.match(packageJson.scripts["dist:win"], /--publish never/);
+  assert.match(packageJson.scripts["dist:api"], /--publish never/);
+  assert.match(packageJson.scripts["dist:installer"], /--publish never/);
   assert.equal(packageJson.build.extraResources, undefined);
   assert.ok(packageJson.build.files.includes("codex-runtime.json"));
   assert.ok(packageJson.build.files.includes("EULA.txt"));
