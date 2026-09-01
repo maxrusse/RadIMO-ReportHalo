@@ -66,12 +66,23 @@ let guidanceLoaded = null;
 let templateLibraryLoaded = null;
 let clinicSourceLibraryLoaded = null;
 let helperBoundsSaveTimer = null;
+let helperCubeModeSaveTimer = null;
 const pendingCapturePaths = new Set();
 const workflowStore = createWorkflowStore();
-const HELPER_BASE_SIZE = { width: 360, height: 380 };
-const HELPER_LAYOUT = { padding: 8, mainWidth: 344, anchorX: 163.5, anchorY: 172, chatMainHeight: 326 };
+// Both modes remain floating Cub surfaces. The compact mode is the default
+// because it must sit above the user's RIS/editor without obscuring it.
+const HELPER_CUBE_MODES = {
+  compact: {
+    size: { width: 180, height: 190 },
+    layout: { padding: 4, mainWidth: 172, anchorX: 74, anchorY: 79, chatMainHeight: 182 },
+  },
+  standard: {
+    size: { width: 360, height: 380 },
+    layout: { padding: 8, mainWidth: 344, anchorX: 163.5, anchorY: 172, chatMainHeight: 326 },
+  },
+};
+let helperCubeMode = "compact";
 const HELPER_PANEL_SIZES = {
-  base: HELPER_BASE_SIZE,
   chat: { width: 680, height: 820 },
   workspace: { width: 980, height: 640 },
   editor: { width: 700, height: 520 },
@@ -80,6 +91,10 @@ const HELPER_PANEL_SIZES = {
   config: { width: 700, height: 520 },
   settings: { width: 700, height: 620 },
 };
+
+function currentHelperCube() {
+  return HELPER_CUBE_MODES[helperCubeMode] || HELPER_CUBE_MODES.compact;
+}
 const HELPER_TOGGLE_SHORTCUT = "CommandOrControl+Shift+Space";
 const DICTATION_SHORTCUT = "CommandOrControl+Shift+D";
 const FIELD_CAPTURE_SHORTCUT = "CommandOrControl+Shift+G";
@@ -190,7 +205,7 @@ async function agentApiStatus() {
 }
 
 function helperWindowStatePath() {
-  return path.join(app.getPath("userData"), "mini-helper-window.json");
+  return path.join(app.getPath("userData"), "reporthalo-window.json");
 }
 
 function visibleHelperBounds(bounds) {
@@ -200,19 +215,22 @@ function visibleHelperBounds(bounds) {
     return bounds.x + bounds.width / 2 >= area.x && bounds.x + bounds.width / 2 <= area.x + area.width && bounds.y + bounds.height / 2 >= area.y && bounds.y + bounds.height / 2 <= area.y + area.height;
   }) || screen.getPrimaryDisplay();
   const area = display.workArea;
-  const x = Math.min(Math.max(Math.round(bounds.x), area.x), area.x + Math.max(0, area.width - HELPER_BASE_SIZE.width));
-  const y = Math.min(Math.max(Math.round(bounds.y), area.y), area.y + Math.max(0, area.height - HELPER_BASE_SIZE.height));
+  const size = currentHelperCube().size;
+  const x = Math.min(Math.max(Math.round(bounds.x), area.x), area.x + Math.max(0, area.width - size.width));
+  const y = Math.min(Math.max(Math.round(bounds.y), area.y), area.y + Math.max(0, area.height - size.height));
   return {
     x,
     y,
-    width: HELPER_BASE_SIZE.width,
-    height: HELPER_BASE_SIZE.height,
+    width: size.width,
+    height: size.height,
   };
 }
 
 async function loadHelperBounds() {
   try {
-    return visibleHelperBounds(JSON.parse(await fs.readFile(helperWindowStatePath(), "utf8"))?.bounds);
+    const stored = JSON.parse(await fs.readFile(helperWindowStatePath(), "utf8"));
+    helperCubeMode = normalizeHelperCubeMode(stored?.cubeMode);
+    return visibleHelperBounds(stored?.bounds);
   } catch {
     return null;
   }
@@ -226,9 +244,28 @@ function saveHelperBoundsSoon() {
     if (!helperWindowRef || helperWindowRef.isDestroyed()) return;
     if (helperPanelKey !== "base") return;
     const [x, y] = helperWindowRef.getPosition();
-    const bounds = { x, y, ...HELPER_BASE_SIZE };
-    await fs.writeFile(helperWindowStatePath(), JSON.stringify({ bounds }, null, 2), { encoding: "utf8", mode: 0o600 }).catch((error) => {
+    const bounds = { x, y, ...currentHelperCube().size };
+    await fs.writeFile(helperWindowStatePath(), JSON.stringify({ bounds, cubeMode: helperCubeMode }, null, 2), { encoding: "utf8", mode: 0o600 }).catch((error) => {
       log("WARN", "Helper window position could not be saved", { message: error?.message || String(error) });
+    });
+  }, 250);
+}
+
+function saveHelperCubeModeSoon() {
+  if (!helperWindowRef || helperWindowRef.isDestroyed()) return;
+  if (helperCubeModeSaveTimer) clearTimeout(helperCubeModeSaveTimer);
+  helperCubeModeSaveTimer = setTimeout(async () => {
+    if (!helperWindowRef || helperWindowRef.isDestroyed()) return;
+    let stored = {};
+    try {
+      stored = JSON.parse(await fs.readFile(helperWindowStatePath(), "utf8"));
+    } catch {
+      stored = {};
+    }
+    if (!stored || typeof stored !== "object" || Array.isArray(stored)) stored = {};
+    stored.cubeMode = helperCubeMode;
+    await fs.writeFile(helperWindowStatePath(), JSON.stringify(stored, null, 2), { encoding: "utf8", mode: 0o600 }).catch((error) => {
+      log("WARN", "Helper window size mode could not be saved", { message: error?.message || String(error) });
     });
   }, 250);
 }
@@ -485,12 +522,13 @@ async function createHelperWindow() {
     return helperWindowRef;
   }
   const savedBounds = await loadHelperBounds();
+  const size = currentHelperCube().size;
   helperWindowRef = new BrowserWindow({
-    width: HELPER_BASE_SIZE.width,
-    height: HELPER_BASE_SIZE.height,
+    width: size.width,
+    height: size.height,
     ...(savedBounds ? { x: savedBounds.x, y: savedBounds.y } : { center: true }),
-    minWidth: 300,
-    minHeight: 300,
+    minWidth: HELPER_CUBE_MODES.compact.size.width,
+    minHeight: HELPER_CUBE_MODES.compact.size.height,
     maxWidth: 1080,
     maxHeight: 840,
     frame: false,
@@ -500,7 +538,7 @@ async function createHelperWindow() {
     resizable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
-    title: `${APP_NAME} Minihelfer`,
+    title: APP_NAME,
     backgroundColor: "#00000000",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -526,7 +564,7 @@ async function createHelperWindow() {
   });
   helperWindowRef.webContents.once("did-finish-load", () => {
     helperWindowRef.showInactive();
-    if (agentClient) sendToRenderer("agent:ready", { appName: `${APP_NAME} Minihelfer`, ...getBackendInfo() });
+    if (agentClient) sendToRenderer("agent:ready", { appName: APP_NAME, ...getBackendInfo() });
   });
   helperWindowRef.on("move", saveHelperBoundsSoon);
   helperWindowRef.on("system-context-menu", (event, params = {}) => {
@@ -536,7 +574,9 @@ async function createHelperWindow() {
   });
   helperWindowRef.on("closed", () => {
     if (helperBoundsSaveTimer) clearTimeout(helperBoundsSaveTimer);
+    if (helperCubeModeSaveTimer) clearTimeout(helperCubeModeSaveTimer);
     helperBoundsSaveTimer = null;
+    helperCubeModeSaveTimer = null;
     helperWindowRef = null;
   });
   try {
@@ -558,31 +598,60 @@ function helperNativeWindowHandle() {
   }
 }
 
-function setHelperPanelSize(panel = "base") {
-  if (!helperWindowRef || helperWindowRef.isDestroyed()) return HELPER_PANEL_SIZES.base;
-  const size = HELPER_PANEL_SIZES[panel] || HELPER_PANEL_SIZES.base;
+function normalizeHelperCubeMode(value) {
+  return Object.prototype.hasOwnProperty.call(HELPER_CUBE_MODES, value) ? value : "compact";
+}
+
+function setHelperCubeMode(mode) {
+  const nextMode = normalizeHelperCubeMode(mode);
+  if (nextMode === helperCubeMode) return { mode: helperCubeMode, ...currentHelperCube().size };
+  const previousCube = currentHelperCube();
+  let anchor = null;
+  if (helperWindowRef && !helperWindowRef.isDestroyed()) {
+    const current = helperWindowRef.getBounds();
+    const previousExtraWidth = Math.max(0, current.width - previousCube.size.width);
+    const previousChatPanelHeight = Math.max(0, current.height - (previousCube.layout.padding * 2) - previousCube.layout.chatMainHeight);
+    anchor = {
+      x: current.x + previousCube.layout.anchorX + (helperPanelSide === "left" ? previousExtraWidth : 0),
+      y: current.y + previousCube.layout.anchorY + (helperPanelKey === "chat" && helperPanelVertical === "top" ? previousChatPanelHeight : 0),
+    };
+  }
+  helperCubeMode = nextMode;
+  saveHelperCubeModeSoon();
+  const layout = helperWindowRef && !helperWindowRef.isDestroyed()
+    ? setHelperPanelSize(helperPanelKey, anchor)
+    : currentHelperCube().size;
+  return { mode: helperCubeMode, ...layout };
+}
+
+function setHelperPanelSize(panel = "base", anchorOverride = null) {
+  const cube = currentHelperCube();
+  const baseSize = cube.size;
+  const layout = cube.layout;
+  const size = panel === "base" ? baseSize : HELPER_PANEL_SIZES[panel] || baseSize;
+  if (!helperWindowRef || helperWindowRef.isDestroyed()) return size;
   const display = screen.getDisplayMatching(helperWindowRef.getBounds());
   const area = display.workArea;
   const current = helperWindowRef.getBounds();
   const width = Math.min(size.width, area.width);
   const height = Math.min(size.height, area.height);
-  const previousExtraWidth = Math.max(0, current.width - HELPER_BASE_SIZE.width);
-  const previousChatPanelHeight = Math.max(0, current.height - (HELPER_LAYOUT.padding * 2) - HELPER_LAYOUT.chatMainHeight);
-  const anchor = {
-    x: current.x + HELPER_LAYOUT.anchorX + (helperPanelSide === "left" ? previousExtraWidth : 0),
-    y: current.y + HELPER_LAYOUT.anchorY + (helperPanelKey === "chat" && helperPanelVertical === "top" ? previousChatPanelHeight : 0),
+  const previousExtraWidth = Math.max(0, current.width - baseSize.width);
+  const previousChatPanelHeight = Math.max(0, current.height - (layout.padding * 2) - layout.chatMainHeight);
+  const anchor = anchorOverride || {
+    x: current.x + layout.anchorX + (helperPanelSide === "left" ? previousExtraWidth : 0),
+    y: current.y + layout.anchorY + (helperPanelKey === "chat" && helperPanelVertical === "top" ? previousChatPanelHeight : 0),
   };
-  const extraWidth = Math.max(0, width - HELPER_BASE_SIZE.width);
+  const extraWidth = Math.max(0, width - baseSize.width);
   const sidePanel = panel !== "base" && panel !== "chat";
-  const rightFits = anchor.x - HELPER_LAYOUT.anchorX + width <= area.x + area.width;
-  const leftFits = anchor.x - HELPER_LAYOUT.anchorX - extraWidth >= area.x;
+  const rightFits = anchor.x - layout.anchorX + width <= area.x + area.width;
+  const leftFits = anchor.x - layout.anchorX - extraWidth >= area.x;
   helperPanelSide = sidePanel && !rightFits && leftFits ? "left" : "right";
-  const chatPanelHeight = Math.max(0, height - (HELPER_LAYOUT.padding * 2) - HELPER_LAYOUT.chatMainHeight);
-  const bottomFits = anchor.y - HELPER_LAYOUT.anchorY + height <= area.y + area.height;
-  const topFits = anchor.y - HELPER_LAYOUT.anchorY - chatPanelHeight >= area.y;
+  const chatPanelHeight = Math.max(0, height - (layout.padding * 2) - layout.chatMainHeight);
+  const bottomFits = anchor.y - layout.anchorY + height <= area.y + area.height;
+  const topFits = anchor.y - layout.anchorY - chatPanelHeight >= area.y;
   helperPanelVertical = panel === "chat" && !bottomFits && topFits ? "top" : "bottom";
-  let x = helperPanelSide === "left" ? anchor.x - HELPER_LAYOUT.anchorX - extraWidth : anchor.x - HELPER_LAYOUT.anchorX;
-  let y = panel === "chat" && helperPanelVertical === "top" ? anchor.y - HELPER_LAYOUT.anchorY - chatPanelHeight : anchor.y - HELPER_LAYOUT.anchorY;
+  let x = helperPanelSide === "left" ? anchor.x - layout.anchorX - extraWidth : anchor.x - layout.anchorX;
+  let y = panel === "chat" && helperPanelVertical === "top" ? anchor.y - layout.anchorY - chatPanelHeight : anchor.y - layout.anchorY;
   x = Math.min(Math.max(Math.round(x), area.x), area.x + Math.max(0, area.width - width));
   y = Math.min(Math.max(Math.round(y), area.y), area.y + Math.max(0, area.height - height));
   helperPanelKey = panel;
@@ -1101,6 +1170,7 @@ registerIpcHandler("ui:set-helper-focusable", (_event, value) => {
   }
   return true;
 });
+registerIpcHandler("ui:set-helper-cube-mode", (_event, mode) => setHelperCubeMode(mode));
 registerIpcHandler("ui:set-helper-panel", (_event, payload) => {
   const request = payload && typeof payload === "object" ? payload : null;
   const requestId = Number(request?.requestId || 0);
@@ -1291,7 +1361,7 @@ if (!hasSingleInstanceLock) {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       log("ERROR", `${APP_NAME} startup failed`, { message });
-      dialog.showErrorBox(APP_NAME, `Der Minihelfer konnte nicht gestartet werden.\n\n${message}\n\nDetails stehen im lokalen App-Log.`);
+      dialog.showErrorBox(APP_NAME, `ReportHalo konnte nicht gestartet werden.\n\n${message}\n\nDetails stehen im lokalen App-Log.`);
       app.quit();
     }
   });

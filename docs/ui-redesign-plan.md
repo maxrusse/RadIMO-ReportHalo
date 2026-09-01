@@ -1,6 +1,6 @@
 # RadIMO – ReportHalo UI redesign plan
 
-Status: 0.2.11 is mini-only. The Floating Orb is the only product window; longer workflows open as attached panels inside that same movable window.
+Status: 0.2.11 uses the compact Halo Cub as its only product window; longer workflows open as attached panels inside that same movable window.
 
 ## Product decision
 
@@ -30,7 +30,7 @@ Right-click on the core or a function opens a compact local menu. The core menu 
 
 Chat, Textquelle, Context, Review, and Account are rendered inside the Orb's single BrowserWindow. Text & Chat, Review, Context, and Account use a connected right-side track; the combined workspace is the only shared discussion surface and is never an independent popup. Opening a panel grows the native window in that direction and leaves it open until its opener is clicked again; the center core remains the drag handle, so every panel moves with the Orb and never loses its owner.
 
-The compact base is 360 × 380 px. Panel presets are bounded and selected by the main process (`workspace`, `review`, `context`, `settings`); the workspace uses a 980 × 640 px connected right-side track while preserving the Orb column. Position persistence stores only the compact base geometry, so a previous expanded panel cannot turn startup into a large app.
+The compact base is 180 × 190 px, with a 140 × 140 px 3×3 board. Right-clicking the core toggles the persistent 360 × 380 px standard floating Cub; this remains one movable companion window and never becomes a separate desktop workspace. Panel presets are bounded and selected by the main process (`workspace`, `review`, `context`, `settings`); the workspace uses a 980 × 640 px connected right-side track while preserving the Cub column and its outer controls. Position persistence stores only the closed Cub geometry, so a previous expanded panel cannot turn startup into a large app.
 
 ## Active Arbeitsfläche auswählen
 

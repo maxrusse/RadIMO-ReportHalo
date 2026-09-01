@@ -26,7 +26,7 @@ The Orb uses a 3×3 action matrix with compact right/bottom controls. The top-le
 
 ## Iterations
 
-### Iteration 1 — reliable minimum
+### Iteration 1 — reliable baseline
 
 Status: implemented and packaged in `0.2.0`; live startup and model discovery were verified on Windows.
 
@@ -36,12 +36,12 @@ Status: implemented and packaged in `0.2.0`; live startup and model discovery we
 - Remove invented model fallbacks and surface backend failures.
 - Keep the Orb centered on field selection, dictation, focused AI actions, output, copy, and guarded transfer.
 
-### Iteration 2 — native mini behavior
+### Iteration 2 — native floating behavior
 
 Status: implemented through the 0.2.10 design pass.
 
 - Use native frameless-window dragging and bounded position persistence; avoid renderer drag loops.
-- Keep one mini-only startup surface with a fixed base size and panel-specific native expansion.
+- Keep one compact startup surface with a fixed base size and panel-specific native expansion.
 - Provide focused-field capture, explicit selection capture, target identity, direct value writes, clipboard restoration, and read-back verification.
 - Keep visible recording level, elapsed time, cancellation, and segmented long-dictation handling.
 - Attach Chat, Textquelle, Context, Review, and Account surfaces to the Orb instead of creating a second window; active side buttons close their own panel.
@@ -51,7 +51,7 @@ Status: implemented through the 0.2.10 design pass.
 
 ### Iteration 3 — clinical workflow hardening
 
-Status: the medical-gate prompts and optional attached review boundary remain part of the mini-only flow; an unused deterministic parser was removed during the deep cleanup.
+Status: the medical-gate prompts and optional attached review boundary remain part of the compact Orb flow; an unused deterministic parser was removed during the deep cleanup.
 
 - Correction, structuring, and assessment use dedicated prompts with separate report-task boundaries.
 - The medical gate preserves numeric values, measurements and units, dates, laterality, negation, uncertainty, temporal qualifiers, and recommendation markers.

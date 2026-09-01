@@ -95,6 +95,34 @@ test("GitHub Pages product page is self-contained and brand-aligned", async () =
   }
 });
 
+test("the closed Halo Cub stays compact while attached panels keep their native presets", async () => {
+  const main = await fs.readFile(path.join(__dirname, "..", "src", "main.js"), "utf8");
+  const app = await fs.readFile(path.join(__dirname, "..", "src", "renderer", "app.js"), "utf8");
+  const renderer = await fs.readFile(path.join(__dirname, "..", "src", "renderer", "index.html"), "utf8");
+  const styles = await fs.readFile(path.join(__dirname, "..", "src", "renderer", "styles.css"), "utf8");
+  const docs = await Promise.all([
+    fs.readFile(path.join(__dirname, "..", "README.md"), "utf8"),
+    fs.readFile(path.join(__dirname, "..", "docs", "index.html"), "utf8"),
+    fs.readFile(path.join(__dirname, "..", "docs", "ui-guidelines.md"), "utf8"),
+  ]);
+  assert.match(main, /compact:[\s\S]*?size: \{ width: 180, height: 190 \}/);
+  assert.match(main, /standard:[\s\S]*?size: \{ width: 360, height: 380 \}/);
+  assert.match(main, /chatMainHeight: 182/);
+  assert.match(styles, /--orb-track: 172px/);
+  assert.match(styles, /--board-size: 140px/);
+  assert.match(styles, /grid-template-columns: var\(--main-column-width\) minmax\(0, 1fr\)/);
+  assert.match(styles, /grid-template-rows: var\(--chat-main-height\) minmax\(0, 1fr\)/);
+  assert.match(main, /chat: \{ width: 680, height: 820 \}/);
+  assert.match(main, /workspace: \{ width: 980, height: 640 \}/);
+  assert.match(main, /ui:set-helper-cube-mode/);
+  assert.match(app, /CUBE_MODE_STORAGE_KEY/);
+  assert.match(renderer, /miniContextCubeSize/);
+  assert.match(styles, /--panel-overlap: 0px/);
+  assert.doesNotMatch(renderer, /Minihelfer|Mini-only|Mini Orb/i);
+  assert.doesNotMatch(main, /Minihelfer|Mini-only|Mini Orb/i);
+  for (const document of docs) assert.doesNotMatch(document, /Minihelfer|Mini-only|Mini Orb/i);
+});
+
 test("GitHub Pages deployment uses the docs site without a build-time dependency", async () => {
   const workflow = await fs.readFile(path.join(__dirname, "..", ".github", "workflows", "pages.yml"), "utf8");
   assert.match(workflow, /actions\/upload-pages-artifact@v3/);

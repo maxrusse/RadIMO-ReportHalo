@@ -9,7 +9,7 @@ RadIMO – ReportHalo is authored as an independent desktop client. The previous
 - `src/agent-backend.js` selects one model-session adapter at runtime. `src/codex-app-server.js` speaks the local JSON-RPC app-server contract for the subscription build; `src/openai-responses.js` speaks the direct streaming Responses API for the small API build. Neither adapter exposes credentials to the renderer.
 - `src/agent-api-config.js` owns provider/end-point/deployment configuration and encrypted API credentials. `src/usage-budget.js` owns the provisional local token guardrail and clearly marked cost estimate.
 - `src/context-finder.js` is a standalone local-first beta for adjacent report context.
-- `src/renderer/` contains one mini-only Floating Orb and its attached panels; there is no separate desktop workspace window.
+- `src/renderer/` contains one compact Floating Orb and its attached panels; there is no separate desktop workspace window.
 - The primary flow uses the 3×3 Orb and compact right/bottom edge controls. Secondary context, clinic sources, templates, and guidance remain behind the attached context panel.
 
 ## Source connector decision

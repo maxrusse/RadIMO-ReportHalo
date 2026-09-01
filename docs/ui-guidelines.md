@@ -2,7 +2,7 @@
 
 ## Direction
 
-RadIMO – ReportHalo is a mini-only **Floating Orb** beside the active RIS-, Word-, or editor window. It is not a shrunken desktop app. The closed state is icon-first and nearly text-free; tooltips, accessible names, color, and motion carry the explanation.
+RadIMO – ReportHalo is a compact **Halo Cub** beside the active RIS-, Word-, or editor window. It is not a second desktop app. The closed state is icon-first and nearly text-free; tooltips, accessible names, color, and motion carry the explanation.
 
 There is one native product BrowserWindow. Chat, Textquelle, Context, Review, and Account are attached panels in that window. They expand the Orb temporarily and always move with it; the screen-region selector is only a temporary capture overlay.
 
@@ -32,7 +32,7 @@ The target identity includes process, native window, automation ID, control type
 
 - Panels live in a panel deck inside the Orb's native window.
 - Opening Text & Chat, Review, Context, or Account grows a connected right-side blob. Text is on the left and the larger Chat pane on the right; on a narrow surface Chat moves above Text. Each state uses a bounded native preset and stays open until its opener is clicked again; action settings can also be closed from within the panel. The captured external text is automatically discussion context and is not copied through the UI. A Chat `Vorschlag ins Textfeld` request creates a local, draggable proposal; it never writes to the captured field. An AI action may be configured with `Vor Übernahme im Editor prüfen`: its result opens in the same Text pane, `Zur Prüfung` moves the edited text into Review, and only `Übernehmen` writes to the explicitly locked external field.
-- The compact base is 360 × 380 px. It starts mini-only on every launch.
+- The closed Halo Cub is 180 × 190 px by default, with a 140 × 140 px 3×3 board and 28 px edge controls. Right-clicking the core toggles a 360 × 380 px standard floating Cub; this is still the same single-window companion, not a desktop workspace. Attached panels keep their existing native sizes and begin outside the outer edge controls.
 - Only the center signal core is a `-webkit-app-region: drag` zone. Buttons, inputs, panels, and text areas are `no-drag`; no renderer pointer-move loop is used.
 - The panel deck is a separate grid track in normal layout flow; it never covers or squeezes the 3×3 board with an unrelated absolute overlay.
 

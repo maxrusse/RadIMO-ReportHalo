@@ -3,10 +3,10 @@
 RadIMO – ReportHalo is a Windows-only floating companion for radiology reporting. It stays beside the RIS, Word, or another editor and applies short, existing-text-first actions to the active report field. The source application remains authoritative: a foreign field must be explicitly activated, and its identity is checked again before text is written back. Chat is the only verbose surface.
 
 <p align="center">
-  <img src="docs/assets/reporthalo-orb-real.png" alt="RadIMO ReportHalo Mini Orb" width="520">
+  <img src="docs/assets/reporthalo-orb-real.png" alt="RadIMO ReportHalo Orb" width="520">
 </p>
 
-*Current anonymized Mini Orb renderer capture.*
+*Current anonymized closed Orb renderer capture.*
 
 ## Mission
 
@@ -16,14 +16,14 @@ Keep the reporting workflow in the window where the report is already being writ
 
 | Area | Current direction |
 | --- | --- |
-| UI | Mini-only, always-on-top Floating Orb; base window 360 × 380 px |
+| UI | Compact, always-on-top Halo Cub by default; closed window 180 × 190 px, with a larger floating Cub option |
 | Panels | Attached Text & Chat workspace, Review, Context, and Account panels; panels move with the Orb |
 | AI paths | Codex subscription through the official local runtime, or a smaller direct Responses API build for OpenAI/Azure OpenAI |
 | Packaging | Windows x64 portable build and per-user installer; Codex is not embedded in the app |
 | Data boundary | API credentials stay in the Electron main process and use encrypted local storage; direct API conversations use local manual history |
 | Status | Unsigned release candidate; not a certified medical device and never the sole basis for a clinical decision |
 
-## The 3×3 Orb
+## The 3×3 Halo Cub
 
 The current German labels are the primary workflow; the icon and tooltip remain available when the Orb is closed.
 
@@ -39,7 +39,7 @@ The current German labels are the primary workflow; the icon and tooltip remain 
 | Bottom middle | **Beurteilung ergänzen** | Adds a draft assessment below the existing content; it does not replace the report. |
 | Bottom right | **Ergebnis prüfen** | Opens a before/after diff and an editable result view. Copy, save, manual revision, and deliberate transfer are available there. |
 
-The right edge opens **Text & Chat** or **Kontext**. The lower edge opens Chat directly. Captured external text is automatically discussion context; a proposal created by Chat starts in the local Text pane and never writes to the foreign field by itself.
+The right edge opens **Text & Chat** or **Kontext**. The lower edge opens Chat directly. Right-click the center to switch between the compact and larger floating Cub; attached panels keep their native sizes and do not cover the outer controls. Captured external text is automatically discussion context; a proposal created by Chat starts in the local Text pane and never writes to the foreign field by itself.
 
 ## Safety boundary
 
@@ -54,7 +54,7 @@ npm start                 # Codex subscription path
 npm run start:api         # direct OpenAI/Azure OpenAI path
 ```
 
-For a release check, run `npm run release:gate`. The Codex build reuses an existing official installation or the pinned, checksum-verified installer helper included with the release. `npm run dist:api` creates the smaller API-only package without the Codex source or payload.
+For a release check, run `npm run release:gate`. The Codex build reuses an existing official installation or the pinned, checksum-verified installer helper included with the release. `npm run dist:api` creates the smaller API-only package without the Codex source or payload. Release binaries belong in [GitHub Releases](https://github.com/maxrusse/RadIMO-ReportHalo/releases), not in the source tree; the tag workflow publishes the portable Codex build, API-only build, ZIP, and installer as draft assets after verification.
 
 ## Links and license
 

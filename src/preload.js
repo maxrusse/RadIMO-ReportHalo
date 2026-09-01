@@ -44,6 +44,7 @@ contextBridge.exposeInMainWorld("radimoAgent", {
   hideHelper: () => ipcRenderer.invoke("ui:hide-helper"),
   quitApp: () => ipcRenderer.invoke("app:quit"),
   setHelperFocusable: (value) => ipcRenderer.invoke("ui:set-helper-focusable", Boolean(value)),
+  setHelperCubeMode: (mode) => ipcRenderer.invoke("ui:set-helper-cube-mode", mode),
   setHelperPanel: (panel, request = null) => ipcRenderer.invoke("ui:set-helper-panel", request ? { panel, ...request } : panel),
   chooseContextSource: () => ipcRenderer.invoke("context:choose"),
   saveContextReport: (report) => ipcRenderer.invoke("context:save-report", report),

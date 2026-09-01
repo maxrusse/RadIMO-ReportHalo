@@ -45,6 +45,7 @@ const state = {
   panelReturnFocus: null,
   contextMenuReturnFocus: null,
   connectionOnline: false,
+  cubeMode: "compact",
 };
 
 const HELPER_FIELD_LABELS = {
@@ -66,6 +67,7 @@ const HELPER_REASONING_EFFORT = "low";
 const MAX_CHAT_MESSAGES = 40;
 const MAX_CHAT_MESSAGE_CHARS = 24_000;
 const ACTION_SETTINGS_STORAGE_KEY = "radimoagent.action-settings.v1";
+const CUBE_MODE_STORAGE_KEY = "radimoagent.cube-size.v1";
 const ACTION_SETTING_DEFAULTS = {
   write: { visible: true, prompt: "", manualReview: false },
   correction: { visible: true, prompt: "", manualReview: false },
@@ -140,6 +142,61 @@ function saveActionSettings() {
   } catch {
     // A non-persistent profile should not block the helper.
   }
+}
+
+function normalizeCubeMode(value) {
+  return value === "standard" ? "standard" : "compact";
+}
+
+function syncCubeModeControl() {
+  const toggle = $("miniContextCubeSize");
+  if (!toggle) return;
+  const nextLabel = state.cubeMode === "compact" ? "Größere Cub-Ansicht" : "Kompakte Cub-Ansicht";
+  toggle.textContent = nextLabel;
+  toggle.setAttribute("aria-label", nextLabel);
+  toggle.title = nextLabel;
+}
+
+function loadCubeMode() {
+  let stored = "compact";
+  try {
+    stored = window.localStorage.getItem(CUBE_MODE_STORAGE_KEY) || stored;
+  } catch {
+    stored = "compact";
+  }
+  state.cubeMode = normalizeCubeMode(stored);
+  document.body.dataset.cubeSize = state.cubeMode;
+  syncCubeModeControl();
+}
+
+function setCubeMode(mode, { persist = true } = {}) {
+  const nextMode = normalizeCubeMode(mode);
+  state.cubeMode = nextMode;
+  document.body.dataset.cubeSize = nextMode;
+  syncCubeModeControl();
+  if (persist) {
+    try {
+      window.localStorage.setItem(CUBE_MODE_STORAGE_KEY, nextMode);
+    } catch {
+      // A non-persistent profile should not block the helper.
+    }
+  }
+  return window.radimoAgent.setHelperCubeMode(nextMode).then((layout) => {
+    if (layout?.mode) {
+      state.cubeMode = normalizeCubeMode(layout.mode);
+      document.body.dataset.cubeSize = state.cubeMode;
+      syncCubeModeControl();
+    }
+    syncPanelConnector();
+    return layout;
+  });
+}
+
+function toggleCubeMode() {
+  closeMiniContextMenu();
+  void setCubeMode(state.cubeMode === "compact" ? "standard" : "compact").catch((error) => {
+    helperSetStatus(error?.message || "Cub-Ansicht konnte nicht geändert werden.", "Prüfung nötig");
+  });
 }
 
 function renderActionVisibility() {
@@ -302,6 +359,9 @@ function showMiniContextMenu(event, targetId = "miniCore") {
   }
   const quit = $("miniContextQuit");
   if (quit) quit.classList.toggle("hidden", definition.kind !== "core");
+  const cubeSize = $("miniContextCubeSize");
+  if (cubeSize) cubeSize.classList.toggle("hidden", definition.kind !== "core");
+  syncCubeModeControl();
   menu.classList.remove("hidden");
   const core = $("miniCore");
   const fallback = core?.getBoundingClientRect();
@@ -314,7 +374,7 @@ function showMiniContextMenu(event, targetId = "miniCore") {
   const placed = menu.getBoundingClientRect();
   menu.style.left = String(Math.max(8, Math.min(x, window.innerWidth - placed.width - 8))) + "px";
   menu.style.top = String(Math.max(8, Math.min(y, window.innerHeight - placed.height - 8))) + "px";
-  [run, selection, copy, reset, configure, $("miniContextSettings"), $("miniContextClose"), quit]
+  [run, selection, copy, reset, configure, cubeSize, $("miniContextSettings"), $("miniContextClose"), quit]
     .find((node) => node && !node.classList.contains("hidden"))?.focus();
 }
 
@@ -362,7 +422,7 @@ function toggleMiniContextVisibility() {
 
 function applyGermanUi() {
   document.documentElement.lang = "de";
-  document.title = "RadIMO – ReportHalo Minihelfer";
+  document.title = "RadIMO – ReportHalo";
 }
 
 function helperFieldLabel() {
@@ -2150,6 +2210,7 @@ on("miniContextConfigure", "click", () => {
   openMiniConfig(definition?.task || state.configTask);
 });
 on("miniContextVisibility", "click", toggleMiniContextVisibility);
+on("miniContextCubeSize", "click", toggleCubeMode);
 on("miniContextSettings", "click", () => { closeMiniContextMenu(); openSettings(); });
 on("miniContextClose", "click", () => { closeMiniContextMenu(); void window.radimoAgent.setHelperFocusable(false); void window.radimoAgent.hideHelper(); });
 on("miniContextQuit", "click", () => { closeMiniContextMenu(); void window.radimoAgent.quitApp(); });
@@ -2257,6 +2318,7 @@ window.radimoAgent.onCaptureFocusedField(() => { void miniCaptureField(); });
 window.radimoAgent.getWorkflowState().then((workflow) => { state.workflow = workflow; if (workflow?.targetIdentity?.windowHandle) { state.focusedTarget = { ...workflow.targetIdentity }; state.fieldLocked = true; } renderMiniTarget(); }).catch(() => {});
 
 applyGermanUi();
+loadCubeMode();
 loadActionSettings();
 renderActionVisibility();
 syncMiniConfigPanel();
@@ -2266,4 +2328,7 @@ renderMiniTarget();
 setMiniDictationState("idle");
 setMiniWorkingState(false);
 helperSetStatus("Arbeitsfeld aktivieren oder Text hineinziehen.", "Bereit");
-void window.radimoAgent.setHelperPanel("base").then(() => window.radimoAgent.setHelperFocusable(false)).catch(() => {});
+void setCubeMode(state.cubeMode, { persist: false })
+  .then(() => window.radimoAgent.setHelperPanel("base"))
+  .then(() => window.radimoAgent.setHelperFocusable(false))
+  .catch(() => {});
