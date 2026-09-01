@@ -9,6 +9,7 @@ const version = packageJson.version;
 const dist = path.join(root, "dist");
 const apiDist = path.join(root, "dist-api");
 const installerDist = path.join(root, "dist-installer");
+const fieldMapperDist = path.join(root, "dist-field-mapper");
 const folderName = `RadIMO-ReportHalo-${version}-win-x64`;
 const zipPath = path.join(dist, `${folderName}.zip`);
 const expectedZipFiles = new Set([
@@ -84,6 +85,7 @@ function verifyUnpackedPayloads() {
   for (const relativePath of [
     "dist/win-unpacked/resources/app.asar",
     "dist-api/win-unpacked/resources/app.asar",
+    "dist-field-mapper/win-unpacked/resources/app.asar",
     "dist-installer/win-unpacked/resources/app.asar",
     "dist-installer/win-unpacked/Install-Codex.ps1",
     "dist-installer/win-unpacked/EULA.txt",
@@ -92,6 +94,7 @@ function verifyUnpackedPayloads() {
   for (const relativePath of [
     "dist/win-unpacked/resources/codex",
     "dist-api/win-unpacked/resources/codex",
+    "dist-field-mapper/win-unpacked/resources/codex",
     "dist-installer/win-unpacked/resources/codex",
   ]) if (fs.existsSync(path.join(root, relativePath))) fail(`unpacked app unexpectedly contains ${relativePath}`);
 }
@@ -99,6 +102,7 @@ function verifyUnpackedPayloads() {
 requireFile(path.join(dist, `RadIMO-ReportHalo-${version}-win-x64.exe`), 1_000_000);
 requireFile(path.join(apiDist, `RadIMO-ReportHalo-${version}-win-x64-api.exe`), 1_000_000);
 requireFile(path.join(installerDist, `RadIMO-ReportHalo-${version}-win-x64-setup.exe`), 1_000_000);
+requireFile(path.join(fieldMapperDist, `RadIMO-ReportHalo-FieldMapper-${version}-win-x64.exe`), 1_000_000);
 verifyUnpackedPayloads();
 verifyZip(findSevenZip());
-console.log("Release artifacts verified: app-only portable ZIP, API portable EXE, and Codex post-install NSIS installer.");
+console.log("Release artifacts verified: app-only portable ZIP, API portable EXE, Field Mapper portable EXE, and Codex post-install NSIS installer.");

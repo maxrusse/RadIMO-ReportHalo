@@ -7,7 +7,15 @@ const { findAdjacentContext, formatContextReport } = require("./context-finder")
 const fs = require("node:fs/promises");
 const crypto = require("node:crypto");
 const { configure, getLogPath, log, readLog } = require("./logger");
-const { readFocusedField, writeFocusedField } = require("./windows-field-bridge");
+const { focusMappedField, readFocusedField, scanFieldWindow: scanRawFieldWindow, writeFocusedField } = require("./windows-field-bridge");
+const {
+  buildFieldMapReport,
+  loadFieldMapperProfile,
+  normalizeFieldMapperProfile,
+  parseRuleText,
+  profileSummary: fieldMapperProfileSummary,
+  saveFieldMapperProfile,
+} = require("./windows-field-mapper");
 const { proxyEndpointFromInternetSettings, readWindowsInternetSettings } = require("./windows-proxy");
 const { readReferencePack, readReferenceUrl } = require("./reference-library");
 const { clinicSummary, formatClinicSourcePrompt, loadClinicSourceLibrary, readClinicSource, saveClinicRoot } = require("./clinic-source-library");
@@ -65,6 +73,7 @@ let snipCompleting = false;
 let guidanceLoaded = null;
 let templateLibraryLoaded = null;
 let clinicSourceLibraryLoaded = null;
+let fieldMapperProfileLoaded = null;
 let helperBoundsSaveTimer = null;
 let helperCubeModeSaveTimer = null;
 const pendingCapturePaths = new Set();
@@ -288,6 +297,11 @@ async function ensureTemplateLibrary() {
 async function ensureClinicSourceLibrary({ reload = false } = {}) {
   if (!clinicSourceLibraryLoaded || reload) clinicSourceLibraryLoaded = loadClinicSourceLibrary({ appRoot: path.join(__dirname, ".."), executablePath: process.execPath, resourcesPath: process.resourcesPath, userDataPath: app.getPath("userData") });
   return clinicSourceLibraryLoaded;
+}
+
+async function ensureFieldMapperProfile({ reload = false } = {}) {
+  if (!fieldMapperProfileLoaded || reload) fieldMapperProfileLoaded = loadFieldMapperProfile(app.getPath("userData"));
+  return fieldMapperProfileLoaded;
 }
 
 async function applyGuidance(options = {}) {
@@ -1125,6 +1139,19 @@ registerIpcHandler("field:read-focused", async (_event, options) => {
   });
   return result;
 });
+registerIpcHandler("field:focus-mapped", async (_event, payload) => {
+  const result = await focusMappedField({
+    windowHandle: payload?.windowHandle,
+    target: payload?.target,
+    helperWindowHandle: helperNativeWindowHandle(),
+  });
+  log(result?.ok ? "INFO" : "WARN", "Mapped field focus", {
+    ok: Boolean(result?.ok),
+    verified: Boolean(result?.verified),
+    error: result?.error || null,
+  });
+  return result;
+});
 registerIpcHandler("field:write-focused", async (_event, payload) => {
   if (!payload || typeof payload.text !== "string") return { ok: false, verified: false, error: "empty-text" };
   const previousClipboard = snapshotClipboard(clipboard);
@@ -1142,6 +1169,42 @@ registerIpcHandler("field:write-focused", async (_event, payload) => {
   } finally {
     restoreClipboard(clipboard, previousClipboard);
   }
+});
+registerIpcHandler("field-mapper:status", async () => fieldMapperProfileSummary(await ensureFieldMapperProfile(), app.getPath("userData")));
+registerIpcHandler("field-mapper:set-config", async (_event, payload) => {
+  const profile = parseRuleText(payload?.includeText, payload?.excludeText);
+  fieldMapperProfileLoaded = await saveFieldMapperProfile(app.getPath("userData"), profile);
+  log("INFO", "Field mapper profile saved", {
+    includeRules: fieldMapperProfileLoaded.include.length,
+    excludePatterns: fieldMapperProfileLoaded.exclude.length,
+  });
+  return fieldMapperProfileSummary(fieldMapperProfileLoaded, app.getPath("userData"));
+});
+registerIpcHandler("field:scan-window", async (_event, payload) => {
+  const profile = await ensureFieldMapperProfile();
+  const readValues = payload?.readValues !== false;
+  const raw = await scanRawFieldWindow({
+    windowHandle: payload?.windowHandle,
+    target: payload?.target,
+    helperWindowHandle: helperNativeWindowHandle(),
+    profile,
+    readValues,
+  });
+  if (!raw?.ok) {
+    log("WARN", "Field mapper scan failed", { error: raw?.error || "unknown", windowHandle: raw?.windowHandle || null });
+    return raw;
+  }
+  const report = buildFieldMapReport(raw, profile, { readValues });
+  log("INFO", "Field mapper scan completed", {
+    processName: report.source.processName || null,
+    processId: report.source.processId || null,
+    scanned: report.diagnostics.scanned,
+    textFields: report.diagnostics.textFields,
+    matchedFields: report.diagnostics.matchedFields,
+    excludedFields: report.diagnostics.excludedFields,
+    readValues,
+  });
+  return report;
 });
 registerIpcHandler("workflow:get", () => workflowStore.get());
 registerIpcHandler("workflow:new-case", (_event, payload) => {

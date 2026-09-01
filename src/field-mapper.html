@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none';" />
+    <title>ReportHalo Field Mapper</title>
+    <link rel="stylesheet" href="./field-mapper.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="hero">
+        <div class="kicker">RADIMO · REPORTHALO</div>
+        <h1>Field Mapper</h1>
+        <p>Inspect an RIS window and read only the configured context fields. This tool uses Windows UI Automation locally; it does not need an API key or send data anywhere.</p>
+      </header>
+
+      <section class="card controls">
+        <div class="actions"><button class="primary" id="scanFields">Scan foreground</button><button id="readContext">Read configured context</button><button id="saveProfile">Save mapping</button><button id="resetProfile">Reset</button><button id="copyReport">Copy report</button><button id="saveReport">Save report</button></div>
+        <p class="hint">Activate the RIS window and press <kbd>Ctrl+Shift+F</kbd>. The shortcut captures the foreground window without selecting a field. After the first scan, the buttons below use that stored window.</p>
+        <p class="status" id="status">Ready. No window inspected.</p>
+      </section>
+
+      <section class="card mapping">
+        <h2>Context mapping</h2>
+        <label>Include rules <textarea id="includeRules" rows="8" maxlength="12000" spellcheck="false"></textarea></label>
+        <p class="hint">One line per group: <code>key = *field label* | *alternative*</code>. Matching is case-insensitive and uses accessible field metadata, not field contents.</p>
+        <label>Exclude rules <textarea id="excludeRules" rows="5" maxlength="8000" spellcheck="false"></textarea></label>
+        <p class="hint">Exclusions always win. Unmatched and excluded values are not read.</p>
+      </section>
+
+      <section class="card results">
+        <div class="section-head"><h2>Scan result</h2><span id="source"></span></div>
+        <div id="groups" class="groups"><p class="muted">No scan yet.</p></div>
+        <details><summary id="allFieldsSummary">All detected text fields</summary><div id="allFields" class="all-fields"></div></details>
+      </section>
+
+      <footer><span>Local diagnostic utility · no AI call</span><button class="quiet" id="quit">Close</button></footer>
+    </main>
+    <script src="./field-mapper.js"></script>
+  </body>
+</html>

@@ -9,6 +9,8 @@ RadIMO – ReportHalo is authored as an independent desktop client. The previous
 - `src/agent-backend.js` selects one model-session adapter at runtime. `src/codex-app-server.js` speaks the local JSON-RPC app-server contract for the subscription build; `src/openai-responses.js` speaks the direct streaming Responses API for the small API build. Neither adapter exposes credentials to the renderer.
 - `src/agent-api-config.js` owns provider/end-point/deployment configuration and encrypted API credentials. `src/usage-budget.js` owns the provisional local token guardrail and clearly marked cost estimate.
 - `src/context-finder.js` is a standalone local-first beta for adjacent report context.
+- `src/windows-field-bridge.js` provides the Windows-only UI Automation read/write bridge; `src/windows-field-mapper.js` owns the label-pattern profile, exclusion-first matching, and structured context serializer.
+- `src/field-mapper-main.js` and its small renderer form the API-free standalone Field Mapper diagnostic build. It has no agent, credential, or network path and shares the same scanner contract with the integrated app.
 - `src/renderer/` contains one compact Floating Orb and its attached panels; there is no separate desktop workspace window.
 - The primary flow uses the 3×3 Orb and compact right/bottom edge controls. Secondary context, clinic sources, templates, and guidance remain behind the attached context panel.
 
@@ -19,3 +21,5 @@ The beta does not assume a Radcenter API, database, or permission model that is 
 ## Context report shape
 
 The beta report records the selected anchor, the same-folder natural ordering strategy, requested report sections, neighboring file paths, section-name hints, file sizes, and bounded text previews. Binary files remain references and are not parsed.
+
+The Field Mapper report is separate from the file beta. It records the target process and bounded UI Automation metadata for detected text controls. Configured label rules are matched against accessible names, labels, help text, automation IDs, and class names; exclusions and password controls are removed before values are read. Only matched values appear in named context groups. Unmatched controls retain metadata for local mapping diagnostics but their contents are not returned.

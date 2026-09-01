@@ -1,6 +1,6 @@
 {
   "name": "radimo-reporthalo-desktop",
-  "version": "0.2.12",
+  "version": "0.2.13",
   "private": true,
   "description": "RadIMO - ReportHalo desktop client for transparent medical report quality review",
   "homepage": "https://maxrusse.github.io/RadIMO-ReportHalo/",
@@ -15,7 +15,7 @@
   },
   "scripts": {
     "test": "node --test test/release-contract.test.js",
-    "check": "node --check src/main.js && node --check src/preload.js && node --check src/platform.js && node --check src/codex-runtime.js && node --check src/codex-app-server.js && node --check src/text-contract.js && node --check src/runtime-config.js && node --check src/agent-api-config.js && node --check src/usage-budget.js && node --check src/openai-responses.js && node --check src/agent-backend.js && node --check src/clipboard-transfer.js && node --check src/context-finder.js && node --check src/reference-library.js && node --check src/clinic-source-library.js && node --check src/logger.js && node --check src/medical-gate.js && node --check src/openai-audio.js && node --check src/report-writing-guidance.js && node --check src/template-library.js && node --check src/windows-field-bridge.js && node --check src/windows-proxy.js && node --check src/codex-proxy-env.js && node --check src/workflow-state.js && node --check src/snip-preload.js && node --check src/renderer/app.js && node --check src/renderer/snip.js && node --check scripts/start-api.js && node --check scripts/package-win-zip.js && node --check scripts/check-windows-payload.js && node --check scripts/release-gate.js && node --check scripts/verify-release-artifacts.js",
+    "check": "node --check src/main.js && node --check src/preload.js && node --check src/platform.js && node --check src/codex-runtime.js && node --check src/codex-app-server.js && node --check src/text-contract.js && node --check src/runtime-config.js && node --check src/agent-api-config.js && node --check src/usage-budget.js && node --check src/openai-responses.js && node --check src/agent-backend.js && node --check src/clipboard-transfer.js && node --check src/context-finder.js && node --check src/reference-library.js && node --check src/clinic-source-library.js && node --check src/logger.js && node --check src/medical-gate.js && node --check src/openai-audio.js && node --check src/report-writing-guidance.js && node --check src/template-library.js && node --check src/windows-field-bridge.js && node --check src/windows-field-mapper.js && node --check src/field-mapper-main.js && node --check src/field-mapper-preload.js && node --check src/field-mapper.js && node --check src/windows-proxy.js && node --check src/codex-proxy-env.js && node --check src/workflow-state.js && node --check src/snip-preload.js && node --check src/renderer/app.js && node --check src/renderer/snip.js && node --check scripts/start-api.js && node --check scripts/package-win-zip.js && node --check scripts/check-windows-payload.js && node --check scripts/release-gate.js && node --check scripts/verify-release-artifacts.js",
     "release:gate": "node scripts/release-gate.js",
     "release:artifacts": "node scripts/verify-release-artifacts.js",
     "start": "electron .",
@@ -25,7 +25,8 @@
     "dist:win": "npm run preflight:win && electron-builder --win portable --publish never && npm run dist:zip",
     "dist:codex": "npm run dist:win",
     "dist:installer": "npm run preflight:win && electron-builder --win nsis --config scripts/win-installer-config.json --publish never",
-    "dist:api": "electron-builder --win portable --config scripts/win-api-config.json --publish never"
+    "dist:api": "electron-builder --win portable --config scripts/win-api-config.json --publish never",
+    "dist:field-mapper": "electron-builder --win portable --config scripts/win-field-mapper-config.json --publish never"
   },
   "devDependencies": {
     "electron": "44.1.0",

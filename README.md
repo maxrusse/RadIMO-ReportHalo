@@ -19,7 +19,7 @@ Keep the reporting workflow in the window where the report is already being writ
 | UI | Compact, always-on-top Halo Cub by default; closed window 180 × 190 px, with a larger floating Cub option |
 | Panels | Attached Text & Chat workspace, Review, Context, and Account panels; panels move with the Orb |
 | AI paths | Codex subscription through the official local runtime, or a smaller direct Responses API build for OpenAI/Azure OpenAI |
-| Packaging | Windows x64 portable build and per-user installer; Codex is not embedded in the app |
+| Packaging | Windows x64 portable build, per-user installer, API build, and a separate local Field Mapper utility; Codex is not embedded in the app |
 | Data boundary | API credentials stay in the Electron main process and use encrypted local storage; direct API conversations use local manual history |
 | Status | Unsigned release candidate; not a certified medical device and never the sole basis for a clinical decision |
 
@@ -31,7 +31,7 @@ The current German labels are the primary workflow; the icon and tooltip remain 
 | --- | --- | --- |
 | Top left | **Arbeitsfeld** | Locks the focused external field, or accepts explicitly dropped text. The small X releases the field or clears the local source. |
 | Top middle | **Ausformulieren** | Makes existing report text clearer without adding unsupported facts. |
-| Top right | **Diktat** | Records a short dictation, transcribes it, and keeps the transcript pending until insertion is requested. |
+| Top right | **Diktat** | Records a short dictation, transcribes it, and keeps the transcript pending until insertion is requested; insertion returns to the captured control and uses its current cursor position. |
 | Middle left | **Lektorat** | Repairs spelling, grammar, punctuation, dictation artifacts, and report style. Medical or logical concerns are reported in Chat, not silently changed. |
 | Center | **Agent-Kern** | Shows ready, working, or offline state and is the drag area for moving the Orb. Right-click opens settings, account, per-action prompts, and close. |
 | Middle right | **Einsetzen** | Applies a reviewed result to the explicitly activated field after the target is revalidated. |
@@ -40,6 +40,8 @@ The current German labels are the primary workflow; the icon and tooltip remain 
 | Bottom right | **Ergebnis prüfen** | Opens a before/after diff and an editable result view. Copy, save, manual revision, and deliberate transfer are available there. |
 
 The right edge opens **Text & Chat** or **Kontext**. The lower edge opens Chat directly. Right-click the center to switch between the compact and larger floating Cub; attached panels keep their native sizes and do not cover the outer controls. Right-click any prompt-bearing button to open its full per-user prompt; the core menu exposes all prompt-bearing functions in one central settings panel. The current workfield is inserted through the `{{TEXT_BLOCK}}` template token, or appended as a delimited block when a custom prompt omits it. Captured external text is automatically discussion context; a proposal created by Chat starts in the local Text pane and never writes to the foreign field by itself.
+
+For RIS context, the **Field Mapper** scans the active application window through Windows UI Automation. It lists detected text controls, matches accessible labels such as `Fragestellung`, `Labor`, `Befund`, or `Beurteilung` with editable wildcard rules, and applies exclusions such as patient identity fields before reading values. Only matched groups are sent as structured read-only context; unmatched fields are not read. Other actions receive the complete locked field content; dictation is the one insertion-at-cursor path. The same mapper is available inside the Context panel and as the API-free `ReportHalo-FieldMapper` diagnostic EXE. It cannot see controls that expose no Windows accessibility tree and may need matching integrity levels when the RIS runs as administrator.
 
 ## Safety boundary
 
@@ -52,6 +54,7 @@ npm ci
 npm run check
 npm start                 # Codex subscription path
 npm run start:api         # direct OpenAI/Azure OpenAI path
+npm run dist:field-mapper # standalone local RIS field inspector
 ```
 
 For a release check, run `npm run release:gate`. The Codex build reuses an existing official installation or the pinned, checksum-verified installer helper included with the release. `npm run dist:api` creates the smaller API-only package without the Codex source or payload. Release binaries belong in [GitHub Releases](https://github.com/maxrusse/RadIMO-ReportHalo/releases), not in the source tree; the tag workflow publishes the portable Codex build, API-only build, ZIP, and installer as draft assets after verification.

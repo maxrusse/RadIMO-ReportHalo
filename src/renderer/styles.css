@@ -133,7 +133,9 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .mini-orb-layout, .mini-edge-bottom, .mini-status-line, .dictation-monitor { position: relative; z-index: 1; }
 .mini-target-cell { position: relative; isolation: isolate; overflow: hidden; color: var(--dim); background: var(--surface-inset); cursor: pointer; transition: border-color 140ms ease, color 140ms ease, background 140ms ease, box-shadow 140ms ease, transform 140ms ease; }
 .mini-target-cell:hover { border-color: var(--accent); color: var(--accent); background: var(--surface-hover); box-shadow: 0 0 0 2px rgba(130, 226, 210, .08); }
-.mini-target-cell.is-dragging { border-color: var(--accent); color: var(--accent); background: var(--surface-hover); box-shadow: none; }
+.mini-target-cell.is-dragging { border-color: var(--accent); color: var(--accent); background: var(--surface-hover); box-shadow: 0 0 0 3px rgba(130, 226, 210, .14), inset 0 0 0 1px rgba(130, 226, 210, .45); }
+.mini-target-cell.is-dragging::after { position: absolute; inset: 5px; border: 1px dashed currentColor; border-radius: calc(var(--radius-cell) - 3px); content: ""; pointer-events: none; animation: target-drop-pulse 1.1s ease-in-out infinite; }
+.mini-target-cell.is-auto-target { border-color: rgba(242, 198, 117, .78); color: var(--warning); background: #2e2a1d; }
 .mini-target-cell.is-empty { border-style: dashed; }
 .mini-target-cell.is-ready { border-style: solid; border-color: rgba(130, 226, 210, .72); color: var(--accent); background: #08282e; }
 .mini-target-cell.has-text { border-color: rgba(154, 193, 245, .72); color: var(--blue); background: #132335; }
@@ -171,6 +173,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, select:focus-
 .mini-action:disabled, .mini-edge-button:disabled { cursor: not-allowed; opacity: .27; }
 .mini-board .mini-target-cell .mini-action-icon { border-color: currentColor; border-radius: 50%; color: currentColor; background: rgba(130, 226, 210, .035); }
 .mini-board .mini-target-cell:hover, .mini-board .mini-target-cell.is-dragging { border-color: var(--accent); color: var(--accent); background: var(--surface-hover); }
+.mini-board .mini-target-cell.is-auto-target { border-color: rgba(242, 198, 117, .78); color: var(--warning); background: #2e2a1d; }
 
 .mini-core { position: relative; min-width: 0; min-height: 0; width: 100%; height: 100%; display: grid; place-items: center; padding: 0; overflow: hidden; border: 1px solid rgba(130, 226, 210, .5); border-radius: var(--radius-cell); color: var(--accent); background: radial-gradient(circle at 50% 42%, #204d51 0%, #0f3037 30%, #0a252d 62%, var(--surface-inset) 100%); box-shadow: inset 0 0 30px rgba(130, 226, 210, .1); cursor: grab; user-select: none; }
 .mini-core::before { position: absolute; inset: 15%; border: 1px solid rgba(130, 226, 210, .13); border-radius: 18%; content: ""; opacity: .8; transform: rotate(30deg) scale(.86); }
@@ -368,6 +371,25 @@ body[data-mini-panel-vertical="top"][data-mini-panel="chat"] .mini-panel-deck::b
 .screen-capture-preview { width: 100%; max-height: 180px; object-fit: contain; border: 1px solid var(--line); border-radius: 8px; }
 .context-toggle { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 10px; }
 .context-toggle input { accent-color: var(--accent); }
+.field-mapper-panel { display: grid; gap: 8px; }
+.field-mapper-panel textarea { font: 10px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; resize: vertical; }
+.field-mapper-details > summary { color: var(--accent); }
+.field-mapper-items { display: grid; gap: 6px; }
+.field-mapper-group { display: grid; gap: 5px; padding: 7px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255, 255, 255, .025); }
+.field-mapper-group-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.field-mapper-group-head > small { color: var(--dim); font-size: 9px; }
+.field-mapper-value { max-height: 96px; overflow: auto; padding: 6px 7px; border-left: 2px solid rgba(130, 226, 210, .45); color: var(--muted); background: rgba(0, 8, 14, .35); font: 10px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.field-mapper-all { border-top: 1px solid rgba(145, 194, 193, .12); padding-top: 8px; }
+.field-mapper-all summary { cursor: pointer; color: var(--muted); font-size: 11px; font-weight: 700; }
+.field-mapper-all-list { display: grid; gap: 4px; margin-top: 7px; }
+.field-mapper-field { display: grid; gap: 2px; padding: 5px 6px; border-radius: 6px; background: rgba(255, 255, 255, .02); }
+.field-mapper-field strong { color: var(--muted); font-size: 10px; font-weight: 650; overflow-wrap: anywhere; }
+.field-mapper-field small { color: var(--dim); font-size: 9px; overflow-wrap: anywhere; }
+.field-mapper-field.is-matched { border-left: 2px solid rgba(130, 226, 210, .45); }
+.field-mapper-field.is-excluded { border-left: 2px solid rgba(237, 150, 150, .42); opacity: .72; }
+.field-mapper-field.is-auto-target { border-left-color: rgba(242, 198, 117, .86); background: rgba(242, 198, 117, .08); box-shadow: 0 0 0 1px rgba(242, 198, 117, .2); }
+.field-mapper-field.is-auto-target small { color: var(--warning); }
+.field-mapper-auto-toggle { flex: 1 1 100%; }
 
 .mini-context-menu { position: absolute; z-index: 40; width: min(214px, calc(100% - 16px)); display: grid; gap: 4px; padding: 7px; border: 1px solid rgba(130, 226, 210, .38); border-radius: 12px; color: var(--ink); background: rgba(4, 18, 25, .96); box-shadow: 0 12px 28px rgba(0, 0, 0, .4); pointer-events: auto; }
 .mini-context-menu-title { padding: 3px 6px 5px; color: var(--accent); font-size: 9px; letter-spacing: .1em; text-transform: uppercase; }
@@ -401,6 +423,7 @@ button:focus-visible, [role="button"]:focus-visible, textarea:focus-visible, inp
 .mini-target-cell-main:focus-visible { outline-offset: -4px !important; }
 
 @keyframes mini-pulse { 50% { opacity: .45; transform: scale(.92); } }
+@keyframes target-drop-pulse { 50% { opacity: .35; transform: scale(.96); } }
 @keyframes core-orbit { to { transform: rotate(-360deg); } }
 @keyframes core-mark-breathe { 50% { opacity: .52; transform: scale(.88); } }
 @keyframes core-scan { 50% { opacity: .72; transform: translateY(115%); } }

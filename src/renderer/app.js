@@ -6,6 +6,13 @@ const state = {
   apiConfigLocks: { provider: false, authMode: false, endpoint: false, model: false, audioDeployment: false },
   loggedIn: false,
   contextReport: null,
+  fieldMapperProfile: null,
+  fieldMapReport: null,
+  fieldMapSelectedKeys: new Set(),
+  fieldMapperAutoTarget: false,
+  fieldMapperAutoSelection: null,
+  fieldMapperAutoSelecting: false,
+  fieldMapperBusy: false,
   focusedTarget: null,
   fieldLocked: false,
   helperFieldType: "befund",
@@ -71,6 +78,28 @@ const MAX_ACTION_PROMPT_CHARS = 8_000;
 const TEXT_BLOCK_TOKEN = "{{TEXT_BLOCK}}";
 const ACTION_SETTINGS_STORAGE_KEY = "radimoagent.action-settings.v2";
 const CUBE_MODE_STORAGE_KEY = "radimoagent.cube-size.v1";
+const FIELD_MAPPER_PREFERENCE_STORAGE_KEY = "radimoagent.field-mapper-preferences.v1";
+const FIELD_MAPPER_DEFAULT_INCLUDE = [
+  "clinical_question = *fragestellung* | *frage* | *anforderung*",
+  "lab = *labor*",
+  "contrast = *kontrast*",
+  "report = *befund*",
+  "summary = *beurteilung* | *impression*",
+  "clinical_info = *klinische angabe* | *anamnese* | *indikation*",
+  "referrer_notes = *zuweis* | *überweisung* | *refer*",
+].join("\n");
+const FIELD_MAPPER_DEFAULT_EXCLUDE = [
+  "*patient*",
+  "*geburtsdatum*",
+  "*geburt*",
+  "*adresse*",
+  "*telefon*",
+  "*versicherung*",
+  "*fallnummer*",
+  "*patienten-id*",
+  "*patientennummer*",
+  "*versichertennummer*",
+].join("\n");
 const ACTION_PROMPT_DEFAULTS = {
   write: `Formuliere nur den vorhandenen Text klarer. Keine neuen Informationen und keine inhaltlichen Ergänzungen. Gib in text den vollständigen Textblock zurück; er ist für die Ersetzung des aktiven Feldes bestimmt.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
   correction: `Medizinisches Lektorat: Überarbeite nur den vorhandenen Text. Korrigiere Rechtschreibung, Grammatik, Diktatfehler und Lesbarkeit. Keine neuen Inhalte. Gib in text den vollständigen korrigierten Textblock zurück. changes listet tatsächliche Änderungen; logicIssues und medicalIssues bleiben Hinweise und werden nicht in den Text geschrieben.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
@@ -400,6 +429,12 @@ function showMiniContextMenu(event, targetId = "miniCore") {
     reset.classList.toggle("hidden", !targetMenu || !canReset);
     reset.textContent = hasLockedTarget() ? "Arbeitsfeld lösen" : "Textquelle leeren";
   }
+  const autoSelect = $("miniContextAutoSelect");
+  if (autoSelect) {
+    autoSelect.classList.toggle("hidden", !targetMenu);
+    autoSelect.textContent = `${fieldMapperTargetLabel()} automatisch wählen`;
+    autoSelect.title = "Eine eindeutig passende, konfigurierte Textfeldregel als Ziel verwenden";
+  }
   const configure = $("miniContextConfigure");
   const canConfigure = definition.kind === "core" || Boolean(definition.configurable);
   if (configure) {
@@ -429,7 +464,7 @@ function showMiniContextMenu(event, targetId = "miniCore") {
   const placed = menu.getBoundingClientRect();
   menu.style.left = String(Math.max(8, Math.min(x, window.innerWidth - placed.width - 8))) + "px";
   menu.style.top = String(Math.max(8, Math.min(y, window.innerHeight - placed.height - 8))) + "px";
-  [run, selection, copy, reset, configure, cubeSize, $("miniContextSettings"), $("miniContextClose"), quit]
+  [run, selection, copy, reset, autoSelect, configure, cubeSize, $("miniContextFieldMapper"), $("miniContextSettings"), $("miniContextClose"), quit]
     .find((node) => node && !node.classList.contains("hidden"))?.focus();
 }
 
@@ -742,10 +777,11 @@ function renderMiniTarget() {
     if (editor.value !== source) editor.value = source;
   }
   cell.classList.toggle("is-ready", hasTarget);
+  cell.classList.toggle("is-auto-target", hasTarget && Boolean(state.focusedTarget?.fieldMapperKey));
   cell.classList.toggle("has-text", !hasTarget && hasText);
   cell.classList.toggle("is-empty", !hasTarget && !hasText);
   cell.setAttribute("aria-label", hasTarget ? `Externes Feld aktiv: ${helperFieldLabel()}` : hasText ? "Textquelle bereit" : "Arbeitsfeld oder Textquelle");
-  cell.title = hasTarget ? "Externes Feld aktiv · X löst das Zielfeld" : hasText ? "Textquelle bereit · X leert den Text" : "Externes Arbeitsfeld aktivieren oder Text hierher ziehen";
+  cell.title = hasTarget ? `${state.focusedTarget?.fieldMapperLabel ? `${state.focusedTarget.fieldMapperLabel} · ` : ""}Externes Feld aktiv · Rechtsklick für Auto-Ziel · X löst das Zielfeld` : hasText ? "Textquelle bereit · X leert den Text" : "Externes Arbeitsfeld aktivieren oder Text hierher ziehen · Rechtsklick für Auto-Ziel";
   const targetIcon = $("miniTargetIcon");
   if (targetIcon) targetIcon.setAttribute("href", hasTarget ? "#icon-lock" : hasText ? "#icon-edit" : "#icon-target");
   const capture = $("miniCapture");
@@ -841,7 +877,7 @@ function setMiniInsertState() {
   if (save) save.disabled = !hasReview || !state.contextReport?.source?.path;
 }
 
-function rememberFocusedField(focused) {
+function rememberFocusedField(focused, { preserveFieldMap = false } = {}) {
   if (focused?.ok === false || !focused?.windowHandle || state.working || state.transferInFlight) return null;
   state.focusedTarget = {
     ...focused,
@@ -853,6 +889,7 @@ function rememberFocusedField(focused) {
   state.helperSourceText = typeof focused.text === "string" ? focused.text.trim() : "";
   state.pendingDictationText = "";
   state.pendingDictationTarget = null;
+  if (!preserveFieldMap) renderFieldMapperReport(null);
   void window.radimoAgent.patchWorkflow({
     fieldType: state.helperFieldType,
     fieldLabel: helperFieldLabel(),
@@ -920,6 +957,7 @@ function handleMiniTargetDrop(event) {
   state.helperSourceText = dropped;
   state.pendingDictationText = "";
   state.pendingDictationTarget = null;
+  renderFieldMapperReport(null);
   void window.radimoAgent.patchWorkflow({ phase: "idle", target: "text", targetIdentity: null });
   syncDiscussionScope();
   helperSetStatus(`${dropped.length} Zeichen als Textquelle übernommen. Für Einsetzen ein externes Arbeitsfeld aktivieren.`, "Text bereit");
@@ -1449,19 +1487,50 @@ async function insertTextIntoField(value, { isDictation = false, automatic = fal
     });
     const response = await window.radimoAgent.writeFocusedField({
       text: appendText,
-      target: { ...target, append, replaceAll: append || isDictation ? false : target.replaceAll !== false },
+      target: {
+        ...target,
+        append: isDictation ? false : append,
+        replaceAll: isDictation ? false : append || target.replaceAll !== false,
+        insertAtCursor: isDictation || target.insertAtCursor === true,
+      },
     });
     if (response?.actualHash && state.focusedTarget && sameTargetIdentity(state.focusedTarget, target)) state.focusedTarget.expectedFieldHash = response.actualHash;
+    let dictationFieldText = null;
+    if (isDictation && response?.ok) {
+      if (typeof response.actualText === "string") {
+        dictationFieldText = response.actualText;
+      } else {
+        try {
+          const refreshed = await window.radimoAgent.readFocusedField({
+            windowHandle: target.windowHandle,
+            processId: target.processId,
+            controlWindowHandle: target.controlWindowHandle || target.nativeWindowHandle || "",
+          });
+          if (refreshed?.ok && typeof refreshed.text === "string") {
+            dictationFieldText = refreshed.text;
+            if (state.focusedTarget && sameTargetIdentity(state.focusedTarget, target)) state.focusedTarget.expectedFieldHash = refreshed.hash || state.focusedTarget.expectedFieldHash;
+          }
+        } catch { /* the verified write remains the source of truth when a second read is unavailable */ }
+      }
+    }
     if (response?.ok && response.verified) {
       if (isDictation) state.pendingDictationText = "";
       if (isDictation) state.pendingDictationTarget = null;
       if (!isDictation) state.lastResultApplied = true;
-      state.helperSourceText = append ? [existingSource, textToInsert].filter(Boolean).join("\n\n") : textToInsert;
+      if (isDictation) {
+        state.helperSourceText = (dictationFieldText ?? existingSource).trim();
+      } else {
+        state.helperSourceText = append ? [existingSource, textToInsert].filter(Boolean).join("\n\n") : textToInsert;
+      }
       helperSetStatus(append ? "Beurteilung ergänzt und Zielfeld verifiziert." : automatic ? "Ergebnis direkt ersetzt und Zielfeld verifiziert." : "Eingesetzt und Zielfeld verifiziert.", "Verifiziert");
       setMiniDictationState("idle");
     } else if (response?.ok) {
       if (!isDictation) state.lastResultApplied = true;
-      state.helperSourceText = append ? [existingSource, textToInsert].filter(Boolean).join("\n\n") : textToInsert;
+      if (isDictation) {
+        state.helperSourceText = (dictationFieldText ?? existingSource).trim();
+      } else {
+        state.helperSourceText = append ? [existingSource, textToInsert].filter(Boolean).join("\n\n") : textToInsert;
+      }
       helperSetStatus(append ? "Beurteilung ergänzt; Zielfeld bitte prüfen." : automatic ? "Ergebnis ersetzt; Zielfeld bitte prüfen." : "Eingesetzt; Zielfeld bitte im Zielprogramm prüfen.", "Prüfung nötig");
     } else {
       helperSetStatus(`Einsetzen gestoppt: ${response?.error || "Ziel geändert"}.`, "Prüfung nötig");
@@ -1694,10 +1763,328 @@ async function miniStartDictation() {
   }
 }
 
+function fieldMapperTargetRule() {
+  const rules = Array.isArray(state.fieldMapperProfile?.include) ? state.fieldMapperProfile.include : [];
+  return rules.find((rule) => rule.key === "report")
+    || rules.find((rule) => rule.key === "summary")
+    || rules.find((rule) => rule.patterns?.some((pattern) => /befund|report|impression|beurteil/i.test(pattern)))
+    || rules[0]
+    || null;
+}
+
+function fieldMapperTargetLabel() {
+  return fieldMapperTargetRule()?.label || "Befund";
+}
+
+function sameFieldMapperTarget(left, right) {
+  if (!left || !right) return false;
+  if (left.windowHandle && right.windowHandle && String(left.windowHandle) !== String(right.windowHandle)) return false;
+  if (left.nativeWindowHandle && right.nativeWindowHandle) return String(left.nativeWindowHandle) === String(right.nativeWindowHandle);
+  if (left.runtimeId && right.runtimeId) return String(left.runtimeId) === String(right.runtimeId);
+  if (left.automationId && right.automationId) return String(left.automationId) === String(right.automationId);
+  return Boolean(left.label && right.label && left.label === right.label && left.controlType === right.controlType);
+}
+
+function fieldMapperTargetFromField(report, field, rule) {
+  return {
+    windowHandle: String(field?.windowHandle || report?.source?.windowHandle || ""),
+    processId: Number(field?.processId || report?.source?.processId) || 0,
+    controlWindowHandle: Number(field?.nativeWindowHandle) || 0,
+    nativeWindowHandle: Number(field?.nativeWindowHandle) || 0,
+    runtimeId: String(field?.runtimeId || ""),
+    automationId: String(field?.automationId || ""),
+    controlType: String(field?.controlType || ""),
+    name: String(field?.name || ""),
+    title: String(field?.name || field?.label || ""),
+    fieldMapperKey: String(rule?.key || ""),
+    fieldMapperLabel: String(rule?.label || field?.label || "Befund"),
+    replaceAll: true,
+  };
+}
+
+function preferredFieldMapperMatch(report) {
+  const rule = fieldMapperTargetRule();
+  if (!rule) return { rule: null, candidates: [] };
+  const candidates = (Array.isArray(report?.fields) ? report.fields : []).filter((field) => !field.excluded && !field.isPassword && !field.isOffscreen && field.isEnabled !== false && field.matches?.some((match) => match.key === rule.key));
+  return { rule, candidates };
+}
+
+function loadFieldMapperPreferences() {
+  let stored = {};
+  try { stored = JSON.parse(window.localStorage.getItem(FIELD_MAPPER_PREFERENCE_STORAGE_KEY) || "{}"); } catch { stored = {}; }
+  state.fieldMapperAutoTarget = stored.autoTarget === true;
+  const toggle = $("fieldMapperAutoTarget");
+  if (toggle) toggle.checked = state.fieldMapperAutoTarget;
+}
+
+function saveFieldMapperPreferences() {
+  try { window.localStorage.setItem(FIELD_MAPPER_PREFERENCE_STORAGE_KEY, JSON.stringify({ autoTarget: state.fieldMapperAutoTarget })); } catch { /* optional preference */ }
+}
+
+function fieldMapperPrompt() {
+  const report = state.fieldMapReport;
+  if (!report || !$("useFieldMapper")?.checked) return "";
+  const groups = (report.groups || []).filter((group) => state.fieldMapSelectedKeys.has(group.key) && group.values?.length);
+  if (!groups.length) return "";
+  const blocks = groups.map((group) => `${group.label}:\n${group.values.join("\n\n")}`);
+  return [
+    "[EXPLICITLY ATTACHED READ-ONLY RIS CONTEXT]",
+    "The following values were read from configured text fields of the active application. Use them only as case context. Do not infer missing values and do not treat field labels as findings.",
+    blocks.join("\n\n"),
+    "[/EXPLICITLY ATTACHED READ-ONLY RIS CONTEXT]",
+  ].join("\n");
+}
+
+function syncFieldMapperAttachment() {
+  const toggle = $("useFieldMapper");
+  const hasValues = Boolean(state.fieldMapReport?.groups?.some((group) => group.values?.length));
+  if (!toggle) return;
+  toggle.disabled = !hasValues;
+  if (!hasValues) toggle.checked = false;
+}
+
+function fieldMapperFieldLabel(field) {
+  const label = field?.label || field?.name || field?.labeledBy || field?.automationId || "Unbenanntes Textfeld";
+  const identity = [field?.automationId, field?.controlType, field?.frameworkId].filter(Boolean).join(" · ");
+  return identity ? `${label} · ${identity}` : label;
+}
+
+function renderFieldMapperReport(report) {
+  const previousReport = state.fieldMapReport;
+  state.fieldMapReport = report || null;
+  if (!report || report !== previousReport) state.fieldMapperAutoSelection = null;
+  state.fieldMapSelectedKeys = new Set((report?.groups || []).map((group) => group.key));
+  syncFieldMapperAttachment();
+  const autoToggle = $("fieldMapperAutoTarget");
+  if (autoToggle) autoToggle.checked = state.fieldMapperAutoTarget;
+  const targetStatus = $("fieldMapperTargetStatus");
+  if (targetStatus) targetStatus.textContent = state.fieldMapperAutoSelection
+    ? `Auto-Ziel: ${state.fieldMapperAutoSelection.label} · Drag-and-drop bleibt verfügbar.`
+    : "Auto-Ziel nur bei eindeutiger Zuordnung; Drag-and-drop bleibt immer verfügbar.";
+  const list = $("fieldMapperItems");
+  if (!list) return;
+  list.replaceChildren();
+  if (!report) {
+    text("fieldMapperStatus", "Liest nur konfigurierte Textfelder, ohne sie zu aktivieren. Identitätsfelder werden ausgeschlossen.");
+    return;
+  }
+  const diagnostics = report.diagnostics || {};
+  const appName = report.source?.processName || "aktives Fenster";
+  const mode = diagnostics.readValues ? "Kontext gelesen" : "Felder geprüft";
+  text("fieldMapperStatus", `${mode}: ${appName} · ${diagnostics.matchedFields || 0} Treffer · ${report.groups?.length || 0} Gruppen · ${diagnostics.excludedFields || 0} ausgeschlossen${diagnostics.truncated ? " · Liste begrenzt" : ""}.`);
+  const configured = Array.isArray(report.configuredGroups) ? report.configuredGroups : [];
+  for (const configuredGroup of configured) {
+    const group = report.groups?.find((item) => item.key === configuredGroup.key);
+    const article = document.createElement("article");
+    article.className = "field-mapper-group";
+    const head = document.createElement("div");
+    head.className = "field-mapper-group-head";
+    const label = document.createElement("label");
+    label.className = "context-toggle";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = state.fieldMapSelectedKeys.has(configuredGroup.key);
+    checkbox.disabled = !group?.values?.length;
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) state.fieldMapSelectedKeys.add(configuredGroup.key);
+      else state.fieldMapSelectedKeys.delete(configuredGroup.key);
+    });
+    const labelText = document.createElement("span");
+    labelText.textContent = configuredGroup.label;
+    label.append(checkbox, labelText);
+    const count = document.createElement("small");
+    count.textContent = group?.values?.length ? `${group.values.length} Wert${group.values.length === 1 ? "" : "e"}` : configuredGroup.fieldCount ? `${configuredGroup.fieldCount} Feld${configuredGroup.fieldCount === 1 ? "" : "er"} · leer` : "nicht gefunden";
+    head.append(label, count);
+    article.append(head);
+    if (group?.values?.length) {
+      for (const value of group.values.slice(0, 3)) {
+        const valueNode = document.createElement("div");
+        valueNode.className = "field-mapper-value";
+        valueNode.textContent = value.length > 700 ? `${value.slice(0, 700)}…` : value;
+        article.append(valueNode);
+      }
+    }
+    list.append(article);
+  }
+  const allFields = Array.isArray(report.fields) ? report.fields : [];
+  if (allFields.length) {
+    const details = document.createElement("details");
+    details.className = "field-mapper-all";
+    const summary = document.createElement("summary");
+    summary.textContent = `Alle erkannten Textfelder (${allFields.length})`;
+    details.append(summary);
+    const fieldList = document.createElement("div");
+    fieldList.className = "field-mapper-all-list";
+    for (const field of allFields) {
+      const item = document.createElement("div");
+      const isAutoTarget = sameFieldMapperTarget(field, state.fieldMapperAutoSelection?.field);
+      item.className = `field-mapper-field${field.excluded ? " is-excluded" : field.matches?.length ? " is-matched" : ""}${isAutoTarget ? " is-auto-target" : ""}`;
+      const title = document.createElement("strong");
+      title.textContent = fieldMapperFieldLabel(field);
+      const note = document.createElement("small");
+      const matches = field.matches?.map((match) => match.label || match.key).join(", ");
+      note.textContent = isAutoTarget ? "aktuelles Auto-Ziel · fokussiert" : field.excluded ? "ausgeschlossen" : matches ? `zugeordnet: ${matches}` : field.isPassword ? "geschütztes Feld" : "nicht zugeordnet · Inhalt nicht gelesen";
+      item.append(title, note);
+      fieldList.append(item);
+    }
+    details.append(fieldList);
+    list.append(details);
+  }
+}
+
+async function loadFieldMapperConfig() {
+  try {
+    const profile = await window.radimoAgent.getFieldMapperStatus();
+    state.fieldMapperProfile = profile;
+    $("fieldMapperInclude").value = profile?.includeText || FIELD_MAPPER_DEFAULT_INCLUDE;
+    $("fieldMapperExclude").value = profile?.excludeText || FIELD_MAPPER_DEFAULT_EXCLUDE;
+  } catch (error) {
+    state.fieldMapperProfile = null;
+    $("fieldMapperInclude").value = FIELD_MAPPER_DEFAULT_INCLUDE;
+    $("fieldMapperExclude").value = FIELD_MAPPER_DEFAULT_EXCLUDE;
+    text("fieldMapperStatus", error.message || "Feldzuordnung konnte nicht geladen werden.");
+  }
+}
+
+async function saveFieldMapperConfig({ silent = false } = {}) {
+  try {
+    const profile = await window.radimoAgent.setFieldMapperConfig({
+      includeText: $("fieldMapperInclude")?.value || "",
+      excludeText: $("fieldMapperExclude")?.value || "",
+    });
+    state.fieldMapperProfile = profile;
+    if (!silent) {
+      renderFieldMapperReport(null);
+      text("fieldMapperStatus", "Feldzuordnung gespeichert. Das aktive Fenster kann jetzt gelesen werden.");
+      showToast("RIS-Feldzuordnung gespeichert.");
+    }
+    return profile;
+  } catch (error) {
+    text("fieldMapperStatus", error.message || "Feldzuordnung konnte nicht gespeichert werden.");
+    return null;
+  }
+}
+
+async function resetFieldMapperConfig() {
+  $("fieldMapperInclude").value = FIELD_MAPPER_DEFAULT_INCLUDE;
+  $("fieldMapperExclude").value = FIELD_MAPPER_DEFAULT_EXCLUDE;
+  await saveFieldMapperConfig();
+}
+
+async function autoSelectMappedField({ reportOverride = null } = {}) {
+  if (state.fieldMapperAutoSelecting) return null;
+  state.fieldMapperAutoSelecting = true;
+  try {
+    const report = reportOverride || await scanFieldMapper({ readValues: false, autoSelect: false });
+    if (!report?.ok) return null;
+    if (report !== state.fieldMapReport) renderFieldMapperReport(report);
+    const { rule, candidates } = preferredFieldMapperMatch(report);
+    if (!rule) {
+      text("fieldMapperTargetStatus", "Keine Auto-Zielregel konfiguriert. Drag-and-drop bleibt verfügbar.");
+      helperSetStatus("Keine Feldregel für ein Auto-Ziel vorhanden. Das Feld per Drag-and-drop oder Target-Auswahl aktivieren.", "Manuell wählen");
+      return null;
+    }
+    if (candidates.length !== 1) {
+      const detail = candidates.length ? `${candidates.length} mögliche ${rule.label}-Felder gefunden` : `Kein ${rule.label}-Feld gefunden`;
+      text("fieldMapperTargetStatus", `${detail}. Drag-and-drop bleibt verfügbar.`);
+      helperSetStatus(`${detail}. Bitte das gewünschte Feld per Drag-and-drop oder Target-Auswahl festlegen.`, "Manuell wählen");
+      return null;
+    }
+    const field = candidates[0];
+    const mappedTarget = fieldMapperTargetFromField(report, field, rule);
+    await window.radimoAgent.setHelperFocusable(false);
+    try {
+      const focused = await window.radimoAgent.focusMappedField({ windowHandle: mappedTarget.windowHandle, target: mappedTarget });
+      if (!focused?.ok || !focused.verified) {
+        helperSetStatus(`${rule.label}-Feld gefunden, aber der Fokus konnte nicht sicher bestätigt werden.`, "Prüfung nötig");
+        return null;
+      }
+      const read = await window.radimoAgent.readFocusedField({
+        windowHandle: mappedTarget.windowHandle,
+        processId: mappedTarget.processId,
+        controlWindowHandle: mappedTarget.controlWindowHandle,
+      });
+      if (!read?.ok) {
+        helperSetStatus(`${rule.label}-Feld fokussiert, aber der vollständige Feldinhalt konnte nicht gelesen werden.`, "Prüfung nötig");
+        return null;
+      }
+      const target = rememberFocusedField({
+        ...read,
+        ...mappedTarget,
+        text: read.text,
+        hash: read.hash,
+        strategy: read.strategy,
+        approximate: read.approximate,
+        supportsWrite: read.supportsWrite !== false,
+        replaceAll: true,
+      }, { preserveFieldMap: true });
+      if (!target) return null;
+      state.fieldMapperAutoSelection = { key: rule.key, label: rule.label, field };
+      renderFieldMapperReport(state.fieldMapReport);
+      renderMiniTarget();
+      helperSetStatus(`${rule.label}-Feld automatisch gewählt · vollständiger Feldtext geladen.`, "Auto-Ziel");
+      return target;
+    } finally {
+      void window.radimoAgent.setHelperFocusable(Boolean(state.activePanel) || state.settingsOpen);
+    }
+  } finally {
+    state.fieldMapperAutoSelecting = false;
+  }
+}
+
+async function scanFieldMapper({ readValues = true, autoSelect = false } = {}) {
+  if (state.fieldMapperBusy) return;
+  state.fieldMapperBusy = true;
+  const button = $(readValues ? "scanFieldMapper" : "inspectFieldMapper");
+  if (button) button.disabled = true;
+  text("fieldMapperStatus", readValues ? "Konfigurierte RIS-Felder werden gelesen…" : "Textfelder des aktiven Fensters werden gesucht…");
+  try {
+    const profile = await saveFieldMapperConfig({ silent: true });
+    if (!profile) return;
+    const target = state.focusedTarget?.windowHandle ? state.focusedTarget : null;
+    const report = await window.radimoAgent.scanFieldWindow({
+      windowHandle: target?.windowHandle || "",
+      target,
+      readValues,
+    });
+    if (!report?.ok) {
+      renderFieldMapperReport(null);
+      text("fieldMapperStatus", report?.error === "helper-window" ? "Zuerst ein RIS-/Editorfenster aktivieren, dann erneut prüfen." : report?.error || "Aktives Fenster konnte nicht gelesen werden.");
+      helperSetStatus("RIS-Feldinspektor konnte das Fenster nicht lesen.", "Prüfung nötig");
+      return;
+    }
+    renderFieldMapperReport(report);
+    if (!readValues && autoSelect) void autoSelectMappedField({ reportOverride: report });
+    if (readValues && report.groups?.length) {
+      $("useFieldMapper").checked = false;
+      showToast(`${report.groups.length} RIS-Kontextgruppen bereit.`);
+    }
+    return report;
+  } catch (error) {
+    renderFieldMapperReport(null);
+    text("fieldMapperStatus", error.message || "RIS-Felder konnten nicht gelesen werden.");
+    helperSetStatus("RIS-Feldinspektor fehlgeschlagen.", "Prüfung nötig");
+  } finally {
+    state.fieldMapperBusy = false;
+    if (button) button.disabled = false;
+  }
+}
+
+async function copyFieldMapperReport() {
+  const value = state.fieldMapReport?.reportText;
+  if (!value) return;
+  try { await window.radimoAgent.writeClipboard(value); showToast("Feldmapper-Bericht kopiert."); } catch (error) { text("fieldMapperStatus", error.message || "Feldmapper-Bericht konnte nicht kopiert werden."); }
+}
+
 function contextPrompt() {
-  if (!state.contextReport || !$("useContext")?.checked) return "";
-  const blocks = state.contextReport.items.map((item) => `### ${item.relation} · ${item.section} · ${item.name}\n${item.content || item.preview}`).join("\n\n");
-  return `\n\n[EXPLICITLY ATTACHED LOCAL CONTEXT]\n${blocks}\n[/EXPLICITLY ATTACHED LOCAL CONTEXT]`;
+  const blocks = [];
+  if (state.contextReport && $("useContext")?.checked) {
+    const items = state.contextReport.items.map((item) => `### ${item.relation} · ${item.section} · ${item.name}\n${item.content || item.preview}`).join("\n\n");
+    blocks.push(`[EXPLICITLY ATTACHED LOCAL CONTEXT]\n${items}\n[/EXPLICITLY ATTACHED LOCAL CONTEXT]`);
+  }
+  const mapped = fieldMapperPrompt();
+  if (mapped) blocks.push(mapped);
+  return blocks.length ? `\n\n${blocks.join("\n\n")}` : "";
 }
 
 function referencePrompt() {
@@ -2049,9 +2436,13 @@ async function logout() {
 }
 
 function contextReportText() {
-  if (!state.contextReport) return "";
-  const report = state.contextReport;
-  return ["ReportHalo Kontextbericht", `Erstellt: ${report.generatedAt}`, `Anker: ${report.source.path}`, `Strategie: ${report.strategy}`, "", ...report.items.flatMap((item) => [`## ${item.relation} · ${item.section} · ${item.name}`, item.content || item.preview, ""])].join("\n");
+  const blocks = [];
+  if (state.contextReport) {
+    const report = state.contextReport;
+    blocks.push(["ReportHalo Kontextbericht", `Erstellt: ${report.generatedAt}`, `Anker: ${report.source.path}`, `Strategie: ${report.strategy}`, "", ...report.items.flatMap((item) => [`## ${item.relation} · ${item.section} · ${item.name}`, item.content || item.preview, ""])].join("\n"));
+  }
+  if (state.fieldMapReport?.reportText) blocks.push(state.fieldMapReport.reportText);
+  return blocks.join("\n\n");
 }
 
 function renderContext(report) {
@@ -2271,6 +2662,7 @@ function clearMiniTarget() {
   renderReviewDiff("", "");
   renderAgentNotes(state.lastAgentMeta);
   renderContext(null);
+  renderFieldMapperReport(null);
   text("contextStatus", "Keine Quelle");
   renderReferences([]);
   const capturePath = state.screenCapture?.path;
@@ -2331,19 +2723,29 @@ on("miniConfigSave", "click", saveMiniConfig);
 on("miniConfigReset", "click", resetMiniConfig);
 on("miniTargetClear", "click", (event) => { event.stopPropagation(); clearMiniTarget(); });
 on("miniCapture", "click", () => { void miniCaptureField(); });
+on("miniTargetCell", "dragenter", (event) => {
+  event.preventDefault();
+  event.currentTarget.classList.add("is-dragging");
+  if (!state.working && !state.transferInFlight) helperSetStatus("Textquelle hier ablegen.", "Ablegen");
+});
 on("miniTargetCell", "dragover", (event) => { event.preventDefault(); event.currentTarget.classList.add("is-dragging"); });
-on("miniTargetCell", "dragleave", (event) => { if (event.currentTarget === event.target) event.currentTarget.classList.remove("is-dragging"); });
+on("miniTargetCell", "dragleave", (event) => {
+  const target = event.currentTarget;
+  if (!event.relatedTarget || !target.contains(event.relatedTarget)) target.classList.remove("is-dragging");
+});
 on("miniTargetCell", "drop", (event) => { event.currentTarget.classList.remove("is-dragging"); handleMiniTargetDrop(event); });
 on("miniContextRun", "click", () => runMiniContextTarget(state.contextMenuTarget));
 on("miniContextSelection", "click", () => { closeMiniContextMenu(); void miniCaptureSelection(); });
 on("miniContextCopy", "click", () => { closeMiniContextMenu(); void copyMiniText(); });
 on("miniContextReset", "click", () => { closeMiniContextMenu(); clearMiniTarget(); });
+on("miniContextAutoSelect", "click", () => { closeMiniContextMenu(); void autoSelectMappedField(); });
 on("miniContextConfigure", "click", () => {
   const definition = MINI_ACTIONS[state.contextMenuTarget];
   openMiniConfig(definition?.task || state.configTask);
 });
 on("miniContextVisibility", "click", toggleMiniContextVisibility);
 on("miniContextCubeSize", "click", toggleCubeMode);
+on("miniContextFieldMapper", "click", () => { closeMiniContextMenu(); openContext(); void scanFieldMapper({ readValues: false }); });
 on("miniContextSettings", "click", () => { closeMiniContextMenu(); openSettings(); });
 on("miniContextClose", "click", () => { closeMiniContextMenu(); void window.radimoAgent.setHelperFocusable(false); void window.radimoAgent.hideHelper(); });
 on("miniContextQuit", "click", () => { closeMiniContextMenu(); void window.radimoAgent.quitApp(); });
@@ -2378,6 +2780,21 @@ on("testConnection", "click", () => { void testConnection(); });
 on("copyDiagnostics", "click", () => { void copyDiagnostics(); });
 on("applyProxy", "click", () => { void applyProxy(); });
 on("chooseContext", "click", () => { void chooseContext(); });
+on("scanFieldMapper", "click", () => { void scanFieldMapper({ readValues: true }); });
+on("inspectFieldMapper", "click", () => { void scanFieldMapper({ readValues: false, autoSelect: state.fieldMapperAutoTarget }); });
+on("saveFieldMapper", "click", () => { void saveFieldMapperConfig(); });
+on("resetFieldMapper", "click", () => { void resetFieldMapperConfig(); });
+on("copyFieldMapper", "click", () => { void copyFieldMapperReport(); });
+on("fieldMapperAutoTarget", "change", (event) => {
+  state.fieldMapperAutoTarget = Boolean(event.target.checked);
+  saveFieldMapperPreferences();
+  if (state.fieldMapperAutoTarget && state.fieldMapReport?.fields?.length) void autoSelectMappedField({ reportOverride: state.fieldMapReport });
+  else if (!state.fieldMapperAutoTarget) {
+    state.fieldMapperAutoSelection = null;
+    renderFieldMapperReport(state.fieldMapReport);
+    renderMiniTarget();
+  }
+});
 on("copyContext", "click", () => { void copyContext(); });
 on("copySelectedField", "click", () => { void copySelectedField(); });
 on("prepareCorrection", "click", prepareCorrection);
@@ -2469,6 +2886,8 @@ window.radimoAgent.getWorkflowState().then((workflow) => { state.workflow = work
 applyGermanUi();
 loadCubeMode();
 loadActionSettings();
+loadFieldMapperPreferences();
+void loadFieldMapperConfig();
 renderActionVisibility();
 syncMiniConfigPanel();
 setReviewMode("diff");

@@ -10,6 +10,12 @@ const { CODEX_RUNTIME, getCodexCandidates, resolveCodexBinaryInfo } = require(".
 const { normalizeEndpoint } = require("../src/agent-api-config");
 const { MAX_TRANSCRIPTION_PROMPT_CHARS, TRANSCRIPTION_PROMPT, normalizeTranscriptionPrompt } = require("../src/openai-audio");
 const { estimateCostEur, UsageBudget } = require("../src/usage-budget");
+const {
+  buildFieldMapReport,
+  defaultFieldMapperProfile,
+  matchContextFields,
+  parseRuleText,
+} = require("../src/windows-field-mapper");
 
 test("release metadata is pinned and excludes the Codex payload from the app build", () => {
   assert.equal(packageJson.name, "radimo-reporthalo-desktop");
@@ -143,6 +149,68 @@ test("function prompts are user-editable and preserve reusable chat text", async
   assert.match(audio, /function normalizeTranscriptionPrompt\(value\)/);
   assert.equal(normalizeTranscriptionPrompt(""), TRANSCRIPTION_PROMPT);
   assert.equal(normalizeTranscriptionPrompt("x".repeat(MAX_TRANSCRIPTION_PROMPT_CHARS + 100)).length, MAX_TRANSCRIPTION_PROMPT_CHARS);
+});
+
+test("field mapper applies label rules before reading and keeps the context structured", () => {
+  const profile = parseRuleText([
+    "clinical_question = *frage*",
+    "report = *befund*",
+  ].join("\n"), "*patient*\n*geburtsdatum*");
+  const fields = [
+    { name: "Edit1", labeledBy: "Fragestellung", value: "CT Thorax", supportsValue: true },
+    { name: "Edit2", label: "Befund", value: "Kein Erguss.", supportsValue: true },
+    { name: "Edit3", label: "Patient", value: "Max Mustermann", supportsValue: true },
+    { name: "Edit4", label: "Interne Notiz", value: "nicht zugeordnet", supportsValue: true },
+  ];
+  const matched = matchContextFields(fields, profile);
+  assert.equal(matched[0].matches[0].key, "clinical_question");
+  assert.equal(matched[1].matches[0].key, "report");
+  assert.equal(matched[2].excluded, true);
+  assert.equal(matched[3].matched, false);
+  const report = buildFieldMapReport({
+    ok: true,
+    processName: "ris.exe",
+    processId: 42,
+    windowHandle: "123",
+    fields,
+    diagnostics: { scanned: 4, textFields: 4 },
+  }, profile, { readValues: true });
+  assert.deepEqual(report.groups.map((group) => group.key), ["clinical_question", "report"]);
+  assert.match(report.prompt, /CT Thorax/);
+  assert.doesNotMatch(report.prompt, /Max Mustermann|nicht zugeordnet/);
+  assert.ok(report.fields.some((field) => field.excluded));
+  assert.equal(defaultFieldMapperProfile().schema, "reporthalo.field-map.v1");
+});
+
+test("field mapper is available in the integrated and standalone Windows builds", async () => {
+  const packageJsonText = await fs.readFile(path.join(__dirname, "..", "package.json"), "utf8");
+  const main = await fs.readFile(path.join(__dirname, "..", "src", "main.js"), "utf8");
+  const preload = await fs.readFile(path.join(__dirname, "..", "src", "preload.js"), "utf8");
+  const bridge = await fs.readFile(path.join(__dirname, "..", "src", "windows-field-bridge.js"), "utf8");
+  const app = await fs.readFile(path.join(__dirname, "..", "src", "renderer", "app.js"), "utf8");
+  const renderer = await fs.readFile(path.join(__dirname, "..", "src", "renderer", "index.html"), "utf8");
+  const styles = await fs.readFile(path.join(__dirname, "..", "src", "renderer", "styles.css"), "utf8");
+  const standalone = await fs.readFile(path.join(__dirname, "..", "src", "field-mapper-main.js"), "utf8");
+  const config = await fs.readFile(path.join(__dirname, "..", "scripts", "win-field-mapper-config.json"), "utf8");
+  assert.match(packageJsonText, /dist:field-mapper/);
+  assert.match(main, /field-mapper:set-config/);
+  assert.match(main, /field:focus-mapped/);
+  assert.match(preload, /focusMappedField/);
+  assert.match(main, /field:scan-window/);
+  assert.match(bridge, /RADIMO_FIELD_INSERT_AT_CURSOR/);
+  assert.match(bridge, /actualTextBase64/);
+  assert.match(app, /insertAtCursor/);
+  assert.match(app, /readFocusedField\(\{[\s\S]*?vollständige Feldinhalt/);
+  assert.match(renderer, /scanFieldMapper/);
+  assert.match(renderer, /fieldMapperInclude/);
+  assert.match(renderer, /miniContextAutoSelect/);
+  assert.match(renderer, /fieldMapperAutoTarget/);
+  assert.match(styles, /target-drop-pulse/);
+  assert.match(styles, /\.mini-target-cell\.is-auto-target/);
+  assert.match(standalone, /RadIMO - ReportHalo Field Mapper/);
+  assert.match(standalone, /field-mapper:scan/);
+  assert.match(config, /field-mapper-main\.js/);
+  assert.doesNotMatch(config, /codex|agent-backend|openai/i);
 });
 
 test("GitHub Pages deployment uses the docs site without a build-time dependency", async () => {
