@@ -278,7 +278,7 @@ body[data-mini-panel-side="left"][data-mini-panel="workspace"] .mini-panel-deck:
 body[data-mini-panel="chat"] .mini-panel-deck::before { position: absolute; top: -9px; left: var(--connector-x, var(--chat-connector-fallback)); z-index: 0; width: 30px; height: 10px; border-right: 1px solid rgba(130, 226, 210, .24); border-left: 1px solid rgba(130, 226, 210, .24); background: #0b2730; content: ""; }
 body[data-mini-panel-vertical="top"][data-mini-panel="chat"] .mini-panel-deck::before { top: auto; bottom: -9px; }
 .mini-editor-panel { grid-template-rows: auto minmax(0, 1fr) auto auto; }
-.mini-config-panel { grid-template-rows: auto auto auto auto minmax(0, 1fr) auto auto; }
+.mini-config-panel { grid-template-rows: auto auto auto auto minmax(0, 1fr) auto auto auto; }
 .mini-config-panel .config-toggle { min-height: 0; display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 11px; }
 .mini-config-panel .config-toggle input { margin: 0; accent-color: var(--accent); }
 .mini-config-panel .config-prompt-label { min-height: 0; }

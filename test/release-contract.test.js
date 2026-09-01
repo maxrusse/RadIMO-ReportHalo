@@ -8,6 +8,7 @@ const packageJson = require("../package.json");
 const runtimeManifest = require("../codex-runtime.json");
 const { CODEX_RUNTIME, getCodexCandidates, resolveCodexBinaryInfo } = require("../src/codex-runtime");
 const { normalizeEndpoint } = require("../src/agent-api-config");
+const { MAX_TRANSCRIPTION_PROMPT_CHARS, TRANSCRIPTION_PROMPT, normalizeTranscriptionPrompt } = require("../src/openai-audio");
 const { estimateCostEur, UsageBudget } = require("../src/usage-budget");
 
 test("release metadata is pinned and excludes the Codex payload from the app build", () => {
@@ -124,6 +125,24 @@ test("the closed Halo Cub stays compact while attached panels keep their native 
   assert.doesNotMatch(renderer, /Minihelfer|Mini-only|Mini Orb/i);
   assert.doesNotMatch(main, /Minihelfer|Mini-only|Mini Orb/i);
   for (const document of docs) assert.doesNotMatch(document, /Minihelfer|Mini-only|Mini Orb/i);
+});
+
+test("function prompts are user-editable and preserve reusable chat text", async () => {
+  const app = await fs.readFile(path.join(__dirname, "..", "src", "renderer", "app.js"), "utf8");
+  const renderer = await fs.readFile(path.join(__dirname, "..", "src", "renderer", "index.html"), "utf8");
+  const audio = await fs.readFile(path.join(__dirname, "..", "src", "openai-audio.js"), "utf8");
+  assert.match(app, /ACTION_PROMPT_DEFAULTS/);
+  assert.match(app, /ACTION_SETTINGS_STORAGE_KEY = "radimoagent\.action-settings\.v2"/);
+  assert.match(app, /TEXT_BLOCK_TOKEN = "\{\{TEXT_BLOCK\}\}"/);
+  assert.match(app, /miniChatToggle: \{ label: "Chat", task: "discussion"/);
+  assert.match(app, /miniChatPropose: \{ label: "Vorschlag ins Textfeld", task: "proposal"/);
+  assert.match(app, /function recentDiscussionContext\(\)/);
+  assert.match(app, /function parseChatResult\(raw\)/);
+  assert.match(renderer, /Vollständiger Funktionsprompt/);
+  assert.match(renderer, /id="miniConfigPrompt"[^>]*maxlength="8000"/);
+  assert.match(audio, /function normalizeTranscriptionPrompt\(value\)/);
+  assert.equal(normalizeTranscriptionPrompt(""), TRANSCRIPTION_PROMPT);
+  assert.equal(normalizeTranscriptionPrompt("x".repeat(MAX_TRANSCRIPTION_PROMPT_CHARS + 100)).length, MAX_TRANSCRIPTION_PROMPT_CHARS);
 });
 
 test("GitHub Pages deployment uses the docs site without a build-time dependency", async () => {

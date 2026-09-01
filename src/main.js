@@ -1018,6 +1018,7 @@ registerIpcHandler("audio:transcribe", async (_event, payload) => {
           endpoint: config.endpoint,
           deployment: config.audioDeployment,
           apiVersion: config.audioApiVersion,
+          prompt: payload?.prompt,
           fetchImpl: (url, options) => net.fetch(url, options),
         });
         log("INFO", "Azure dictation transcribed", { model: result.model, bytes: result.bytes, chars: result.text.length });
@@ -1033,7 +1034,7 @@ registerIpcHandler("audio:transcribe", async (_event, payload) => {
     if (config.provider === API_PROVIDERS.OPENAI && candidate) credential = candidate;
   }
   if (!credential) throw new Error("OpenAI API key missing. Open Konto and configure dictation first.");
-  result = await transcribeAudio({ payload, apiKey: credential.key, fetchImpl: (url, options) => net.fetch(url, options) });
+  result = await transcribeAudio({ payload, apiKey: credential.key, prompt: payload?.prompt, fetchImpl: (url, options) => net.fetch(url, options) });
   log("INFO", "Dictation transcribed", { model: result.model, bytes: result.bytes, chars: result.text.length });
   if (audioBudget) await audioBudget.record({ model: result.model, reservationId: reservation?.reservationId, estimatedInputTokens: estimatedAudioTokens, estimatedOutputTokens: tokenCount(result.text) });
   return result;

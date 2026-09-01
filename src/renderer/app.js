@@ -28,6 +28,7 @@ const state = {
   lastAgentMeta: { changes: [], unclear: [], logicIssues: [], medicalIssues: [] },
   lastResultApplied: false,
   lastResultTarget: null,
+  lastChatResultTarget: null,
   manualReviewPending: false,
   transferInFlight: false,
   pendingDictationTarget: null,
@@ -66,14 +67,24 @@ const SPARK_MODEL_ID = "gpt-5.3-codex-spark";
 const HELPER_REASONING_EFFORT = "low";
 const MAX_CHAT_MESSAGES = 40;
 const MAX_CHAT_MESSAGE_CHARS = 24_000;
-const ACTION_SETTINGS_STORAGE_KEY = "radimoagent.action-settings.v1";
+const MAX_ACTION_PROMPT_CHARS = 8_000;
+const TEXT_BLOCK_TOKEN = "{{TEXT_BLOCK}}";
+const ACTION_SETTINGS_STORAGE_KEY = "radimoagent.action-settings.v2";
 const CUBE_MODE_STORAGE_KEY = "radimoagent.cube-size.v1";
-const ACTION_SETTING_DEFAULTS = {
-  write: { visible: true, prompt: "", manualReview: false },
-  correction: { visible: true, prompt: "", manualReview: false },
-  structure: { visible: true, prompt: "", manualReview: false },
-  assessment: { visible: true, prompt: "", manualReview: false },
+const ACTION_PROMPT_DEFAULTS = {
+  write: `Formuliere nur den vorhandenen Text klarer. Keine neuen Informationen und keine inhaltlichen Ergänzungen. Gib in text den vollständigen Textblock zurück; er ist für die Ersetzung des aktiven Feldes bestimmt.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
+  correction: `Medizinisches Lektorat: Überarbeite nur den vorhandenen Text. Korrigiere Rechtschreibung, Grammatik, Diktatfehler und Lesbarkeit. Keine neuen Inhalte. Gib in text den vollständigen korrigierten Textblock zurück. changes listet tatsächliche Änderungen; logicIssues und medicalIssues bleiben Hinweise und werden nicht in den Text geschrieben.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
+  structure: `Ordne nur den vorhandenen Text besser. Nichts ergänzen und keine fehlenden Bausteine erfinden. Gib in text den vollständigen neu geordneten Textblock zurück; er ist für die Ersetzung des aktiven Feldes bestimmt.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
+  assessment: `Fasse nur die vorhandenen Aussagen knapp als Beurteilung. Unsicherheiten und Lücken bleiben sichtbar. Gib in text nur die ergänzende Beurteilung zurück; sie wird unterhalb des vorhandenen Textes eingefügt.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
+  discussion: `Chat: Antworte knapp in 1–4 kurzen Absätzen oder höchstens fünf Stichpunkten. Erkläre, frage nach und diskutiere nur anhand des vorhandenen Textes. Du schreibst nie in ein externes Feld. Wenn der Nutzer ausdrücklich einen korrigierten, umformulierten oder wiederverwendbaren Text verlangt, gib ein JSON-Objekt mit answer, text, changes, unclear, logicIssues und medicalIssues zurück; text ist dann der vollständige Textblock zur späteren Übernahme. Bei reiner Diskussion antworte als normalen kurzen Text.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
+  proposal: `Vorschlag: Erstelle aus dem Arbeitsfeld und der Anweisung einen kurzen, bearbeitbaren Textentwurf. Der Entwurf darf die gewünschte Zielsektion (zum Beispiel Befund oder Beurteilung) abbilden, aber keine neuen medizinischen Fakten ergänzen. Gib in text den vollständigen lokalen Entwurf zurück. Schreibe nie in ein externes Feld.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
+  dictation: "German radiology dictation. Preserve measurements, units, laterality, negations, uncertainty, comparison dates, and established Latin anatomical terms. Transcribe only what was spoken; do not correct, interpret, or add clinical content.",
 };
+const ACTION_SETTING_DEFAULTS = Object.fromEntries(Object.keys(ACTION_PROMPT_DEFAULTS).map((task) => [task, {
+  visible: true,
+  prompt: "",
+  manualReview: false,
+}]));
 const panelLayoutEpoch = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 let panelLayoutRequest = 0;
 let chatAssistantRenderFrame = 0;
@@ -81,16 +92,19 @@ let pendingChatAssistantText = "";
 const MINI_ACTIONS = {
   miniCore: { label: "ReportHalo", kind: "core" },
   miniTargetCell: { label: "Arbeitsfeld", run: true },
-  miniWrite: { label: "Klarer formulieren", task: "write", run: true, configurable: true, hideable: true },
-  miniDictate: { label: "Diktat", run: true },
-  miniCorrection: { label: "Lektorat", task: "correction", run: true, configurable: true, hideable: true },
+  miniWrite: { label: "Klarer formulieren", task: "write", run: true, configurable: true, hideable: true, manualReview: true },
+  miniDictate: { label: "Diktat", task: "dictation", run: true, configurable: true },
+  miniCorrection: { label: "Lektorat", task: "correction", run: true, configurable: true, hideable: true, manualReview: true },
   miniInsert: { label: "Ergebnis anwenden", run: true },
-  miniStructure: { label: "Strukturieren", task: "structure", run: true, configurable: true, hideable: true },
-  miniAssessment: { label: "Beurteilung ergänzen", task: "assessment", run: true, configurable: true, hideable: true },
+  miniStructure: { label: "Strukturieren", task: "structure", run: true, configurable: true, hideable: true, manualReview: true },
+  miniAssessment: { label: "Beurteilung ergänzen", task: "assessment", run: true, configurable: true, hideable: true, manualReview: true },
   miniReview: { label: "Ergebnis prüfen", run: true, hideable: false },
   miniEditorToggle: { label: "Textquelle", run: true },
   miniContextToggle: { label: "Kontext", run: true },
-  miniChatToggle: { label: "Chat", run: true },
+  miniChatToggle: { label: "Chat", task: "discussion", run: true, configurable: true },
+  miniEditorSend: { label: "Chat fragen", task: "discussion", configurable: true },
+  miniChatSend: { label: "Chat senden", task: "discussion", configurable: true },
+  miniChatPropose: { label: "Vorschlag ins Textfeld", task: "proposal", configurable: true },
 };
 
 function modelId(model) {
@@ -130,7 +144,7 @@ function loadActionSettings() {
     const value = stored?.[task] || {};
     return [task, {
       visible: value.visible !== false,
-      prompt: typeof value.prompt === "string" ? value.prompt.trim().slice(0, 1200) : defaults.prompt,
+      prompt: typeof value.prompt === "string" ? value.prompt.trim().slice(0, MAX_ACTION_PROMPT_CHARS) : defaults.prompt,
       manualReview: value.manualReview === true,
     }];
   }));
@@ -206,13 +220,40 @@ function renderActionVisibility() {
   }
 }
 
+function defaultActionPrompt(task) {
+  return ACTION_PROMPT_DEFAULTS[task] || "Bearbeite nur den bereitgestellten Text und halte offene Punkte sichtbar.";
+}
+
 function configuredActionPrompt(task) {
   const value = state.actionSettings?.[task]?.prompt?.trim();
-  return value ? "Zusatzwunsch des Nutzers: " + value : "";
+  return value || defaultActionPrompt(task);
 }
 
 function configTaskIsValid(task) {
   return Object.prototype.hasOwnProperty.call(ACTION_SETTING_DEFAULTS, task);
+}
+
+function configurableActionDefinitions() {
+  const seen = new Set();
+  return Object.values(MINI_ACTIONS).filter((definition) => {
+    if (!definition.task || !definition.configurable || seen.has(definition.task)) return false;
+    seen.add(definition.task);
+    return configTaskIsValid(definition.task);
+  });
+}
+
+function syncMiniConfigActionOptions() {
+  const select = $("miniConfigAction");
+  if (!select) return;
+  const selectedTask = state.configTask;
+  select.replaceChildren();
+  for (const definition of configurableActionDefinitions()) {
+    const option = document.createElement("option");
+    option.value = definition.task;
+    option.textContent = definition.label;
+    select.append(option);
+  }
+  if (configTaskIsValid(selectedTask)) select.value = selectedTask;
 }
 
 function syncMiniConfigPanel() {
@@ -220,15 +261,27 @@ function syncMiniConfigPanel() {
   state.configTask = task;
   const definition = Object.values(MINI_ACTIONS).find((item) => item.task === task);
   const settings = state.actionSettings[task] || ACTION_SETTING_DEFAULTS[task];
-  const select = $("miniConfigAction");
-  if (select) select.value = task;
+  syncMiniConfigActionOptions();
   text("miniConfigTitle", definition?.label || "Aktion");
   const visible = $("miniConfigVisible");
   if (visible) visible.checked = settings.visible !== false;
   const manualReview = $("miniConfigManualReview");
   if (manualReview) manualReview.checked = settings.manualReview === true;
   const prompt = $("miniConfigPrompt");
-  if (prompt) prompt.value = settings.prompt || "";
+  if (prompt) prompt.value = settings.prompt || defaultActionPrompt(task);
+  const visibilityRow = $("miniConfigVisibleRow");
+  visibilityRow?.classList.toggle("hidden", !definition?.hideable);
+  const manualReviewRow = $("miniConfigManualReviewRow");
+  manualReviewRow?.classList.toggle("hidden", !definition?.manualReview);
+  const promptHint = task === "dictation"
+    ? "Dieser Prompt wird zusammen mit der Audiodatei an die Transkription gesendet."
+      : settings.prompt
+        ? "Eigener vollständiger Prompt. Der Arbeitsfeld-Text wird automatisch als Textblock mitgegeben."
+      : `Standardvorlage mit ${TEXT_BLOCK_TOKEN}. Der Arbeitsfeld-Text wird an dieser Stelle eingefügt; ohne Token wird er automatisch angehängt.`;
+  text("miniConfigPromptHint", promptHint);
+  text("miniConfigNote", task === "dictation"
+    ? "Das Diktat wird nur transkribiert; Lektorat und medizinische Prüfung bleiben separate Schritte."
+    : `Der Arbeitsfeld-Text wird automatisch als Textblock mitgegeben. Mit ${TEXT_BLOCK_TOKEN} kannst du den Block im Prompt an einer eigenen Stelle einsetzen.${definition?.manualReview ? " Bei aktivierter manueller Prüfung wird nichts automatisch ins Zielfeld geschrieben." : ""}`);
 }
 
 function openMiniConfig(task = state.configTask) {
@@ -240,15 +293,17 @@ function openMiniConfig(task = state.configTask) {
 
 function saveMiniConfig() {
   const task = configTaskIsValid(state.configTask) ? state.configTask : "correction";
+  const definition = Object.values(MINI_ACTIONS).find((item) => item.task === task);
+  const previous = state.actionSettings[task] || ACTION_SETTING_DEFAULTS[task];
+  const enteredPrompt = String($("miniConfigPrompt")?.value || "").trim().slice(0, MAX_ACTION_PROMPT_CHARS);
   state.actionSettings[task] = {
-    visible: Boolean($("miniConfigVisible")?.checked),
-    prompt: String($("miniConfigPrompt")?.value || "").trim().slice(0, 1200),
-    manualReview: Boolean($("miniConfigManualReview")?.checked),
+    visible: definition?.hideable ? Boolean($("miniConfigVisible")?.checked) : previous.visible !== false,
+    prompt: enteredPrompt === defaultActionPrompt(task) ? "" : enteredPrompt,
+    manualReview: definition?.manualReview ? Boolean($("miniConfigManualReview")?.checked) : previous.manualReview === true,
   };
   saveActionSettings();
   renderActionVisibility();
   syncMiniConfigPanel();
-  const definition = Object.values(MINI_ACTIONS).find((item) => item.task === task);
   helperSetStatus((definition?.label || "Aktion") + " gespeichert.", "Gespeichert");
 }
 
@@ -349,7 +404,7 @@ function showMiniContextMenu(event, targetId = "miniCore") {
   const canConfigure = definition.kind === "core" || Boolean(definition.configurable);
   if (configure) {
     configure.classList.toggle("hidden", !canConfigure);
-    configure.textContent = definition.kind === "core" ? "Aktionen anpassen" : "Prompt & Anzeige";
+    configure.textContent = definition.kind === "core" ? "Alle Funktionsprompts" : "Button-Einstellungen";
   }
   const visibility = $("miniContextVisibility");
   const canToggle = Boolean(definition.hideable && definition.task);
@@ -890,15 +945,30 @@ async function ensureWorkflow(mode) {
 }
 
 function actionPrompt(task) {
-  const base = {
-    correction: "Medizinisches Lektorat: Überarbeite nur den vorhandenen Text. Korrigiere Rechtschreibung, Grammatik, Diktatfehler und Lesbarkeit. Keine neuen Inhalte.",
-    write: "Formuliere nur den vorhandenen Text klarer. Keine neuen Informationen und keine inhaltlichen Ergänzungen.",
-    structure: "Ordne nur den vorhandenen Text besser. Nichts ergänzen und keine fehlenden Bausteine erfinden.",
-    assessment: "Fasse nur die vorhandenen Aussagen knapp als Beurteilung. Unsicherheiten und Lücken bleiben sichtbar.",
-    discussion: "Chat: Antworte knapp in 1–4 kurzen Absätzen oder höchstens fünf Stichpunkten. Erkläre, frage nach und diskutiere nur anhand des vorhandenen Textes. Du schreibst nie in ein externes Feld.",
-    proposal: "Vorschlag: Erstelle aus dem Arbeitsfeld und der Anweisung einen kurzen, bearbeitbaren Textentwurf. Der Entwurf darf die gewünschte Zielsektion (zum Beispiel Befund oder Beurteilung) abbilden, aber keine neuen medizinischen Fakten ergänzen. Schreibe nie in ein externes Feld.",
-  }[task] || "Bearbeite nur den vorhandenen Text und markiere offene Punkte.";
-  return [base, configuredActionPrompt(task)].filter(Boolean).join("\n");
+  return configuredActionPrompt(task);
+}
+
+function promptWithTextBlock(prompt, sourceBlock) {
+  const configured = String(prompt || "");
+  if (configured.includes(TEXT_BLOCK_TOKEN)) return configured.split(TEXT_BLOCK_TOKEN).join(sourceBlock);
+  return [configured, sourceBlock].filter(Boolean).join("\n\n");
+}
+
+function recentDiscussionContext() {
+  const current = currentHelperText().trim();
+  const result = state.lastAgentResult.trim();
+  const sections = [
+    ["Geändert", state.lastAgentMeta?.changes],
+    ["Unklar", state.lastAgentMeta?.unclear],
+    ["Logisch prüfen · nicht geändert", state.lastAgentMeta?.logicIssues],
+    ["Medizinisch prüfen · nicht geändert", state.lastAgentMeta?.medicalIssues],
+  ].filter(([, items]) => Array.isArray(items) && items.length);
+  if (!result && !sections.length) return "";
+  const blocks = ["[LETZTER REPORTHALO-ARBEITSSCHRITT]"];
+  if (result && result !== current) blocks.push(`[LETZTES ERGEBNIS]\n${result}\n[/LETZTES ERGEBNIS]`);
+  for (const [label, items] of sections) blocks.push(`${label}:\n${items.map((item) => `- ${item}`).join("\n")}`);
+  blocks.push("Nutze diesen Abschnitt nur als Gesprächskontext. Ändere offene logische oder medizinische Punkte nicht stillschweigend.", "[/LETZTER REPORTHALO-ARBEITSSCHRITT]");
+  return blocks.join("\n\n").slice(0, 12_000);
 }
 
 const TEXT_ACTION_OUTPUT_CONTRACT = [
@@ -1056,6 +1126,39 @@ function parseAgentResult(raw) {
   return { valid: false, text: "", meta: emptyAgentMeta() };
 }
 
+function parseChatResult(raw) {
+  const cleaned = String(raw || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+  const candidates = [cleaned];
+  const firstBrace = cleaned.indexOf("{");
+  const lastBrace = cleaned.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace && (firstBrace > 0 || lastBrace < cleaned.length - 1)) candidates.push(cleaned.slice(firstBrace, lastBrace + 1));
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || typeof parsed.text !== "string" || !parsed.text.trim()) continue;
+      const hasTextProposalSignal = typeof parsed.answer === "string"
+        || typeof parsed.commentary === "string"
+        || parsed.type === "text_proposal"
+        || ["changes", "unclear", "logicIssues", "medicalIssues"].some((key) => Object.prototype.hasOwnProperty.call(parsed, key));
+      if (!hasTextProposalSignal) continue;
+      return {
+        structured: true,
+        answer: String(parsed.answer || parsed.commentary || "Textvorschlag bereit.").trim(),
+        text: parsed.text.trim(),
+        meta: {
+          changes: normalizeMetaList(parsed.changes),
+          unclear: normalizeMetaList(parsed.unclear),
+          logicIssues: normalizeMetaList(parsed.logicIssues),
+          medicalIssues: normalizeMetaList(parsed.medicalIssues),
+        },
+      };
+    } catch {
+      // Pure discussion text remains a normal chat answer.
+    }
+  }
+  return { structured: false, answer: String(raw || "").trim(), text: "", meta: emptyAgentMeta() };
+}
+
 function updateChatBadge() {
   const badge = $("miniChatBadge");
   badge?.classList.toggle("hidden", !state.chatUnread);
@@ -1104,7 +1207,7 @@ function appendChatMessage(role, value, { unread = role === "assistant" } = {}) 
   return body;
 }
 
-function appendChatProposal(result) {
+function appendChatProposal(result, meta = emptyAgentMeta()) {
   const log = $("miniChatLog");
   if (!log) return;
   $("miniChatEmpty")?.classList.add("hidden");
@@ -1120,13 +1223,19 @@ function appendChatProposal(result) {
   label.className = "mini-chat-message-label";
   label.textContent = "Vorschlag";
   const body = document.createElement("div");
-  body.textContent = "Bearbeitbarer Vorschlag im Textfeld bereit.";
+  body.textContent = "Bearbeitbarer Textblock bereit. Nicht automatisch ins Zielfeld geschrieben.";
+  const noteCount = Object.values(meta).reduce((total, items) => total + (Array.isArray(items) ? items.length : 0), 0);
+  if (noteCount) {
+    const note = document.createElement("small");
+    note.textContent = "Hinweise und Änderungen stehen in der Antwort oben.";
+    article.append(label, body, note);
+  } else article.append(label, body);
   const button = document.createElement("button");
   button.className = "mini-panel-button";
   button.type = "button";
   button.textContent = "Im Textfeld öffnen";
   button.addEventListener("click", () => openResultEditor(result));
-  article.append(label, body, button);
+  article.append(button);
   log.append(article);
   log.scrollTop = log.scrollHeight;
 }
@@ -1218,6 +1327,16 @@ function formatResultMeta(task, meta, { activeTarget = false, transferred = fals
   return lines.join("\n");
 }
 
+function formatChatNotes(meta) {
+  const sections = [
+    ["Geändert", meta?.changes],
+    ["Unklar", meta?.unclear],
+    ["Logisch prüfen · nicht geändert", meta?.logicIssues],
+    ["Medizinisch prüfen · nicht geändert", meta?.medicalIssues],
+  ].filter(([, items]) => Array.isArray(items) && items.length);
+  return sections.map(([label, items]) => `${label}: ${items.join(" · ")}`).join("\n");
+}
+
 async function runAgentAction(task, instruction = "", sourceOverride = null) {
   if (state.working) return;
   const operationTarget = targetSnapshot();
@@ -1233,10 +1352,19 @@ async function runAgentAction(task, instruction = "", sourceOverride = null) {
   const isChat = task === "discussion";
   const isProposal = task === "proposal";
   const sourceBlock = source ? `[AUTOMATISCHER ARBEITSTEXT · ${helperFieldLabel()}]\n${source}\n[/AUTOMATISCHER ARBEITSTEXT]` : "[KEIN ARBEITSTEXT VORHANDEN]";
-  const prompt = [actionPrompt(task), isChat ? "" : isProposal ? PROPOSAL_OUTPUT_CONTRACT : TEXT_ACTION_OUTPUT_CONTRACT, instruction.trim(), `Arbeitsfeld: ${helperFieldLabel()}`, sourceBlock, attachedContext, attachedReferences].filter(Boolean).join("\n\n");
+  const prompt = [
+    promptWithTextBlock(actionPrompt(task), sourceBlock),
+    isChat ? "" : isProposal ? PROPOSAL_OUTPUT_CONTRACT : TEXT_ACTION_OUTPUT_CONTRACT,
+    instruction.trim(),
+    `Arbeitsfeld: ${helperFieldLabel()}`,
+    isChat ? recentDiscussionContext() : "",
+    attachedContext,
+    attachedReferences,
+  ].filter(Boolean).join("\n\n");
   state.activeTask = task;
   state.lastSourceText = source;
   state.lastAgentText = "";
+  state.lastChatResultTarget = isChat ? operationTarget : null;
   if (!isChat) {
     state.pendingDictationText = "";
     state.pendingDictationTarget = null;
@@ -1536,7 +1664,11 @@ async function miniStartDictation() {
       helperSetStatus("Diktat wird transkribiert…", "Transkription");
       try {
         const blob = new Blob(recording.chunks, { type: recorder.mimeType || "audio/webm" });
-        const result = await window.radimoAgent.transcribeAudio({ bytes: await blob.arrayBuffer(), mimeType: blob.type });
+        const result = await window.radimoAgent.transcribeAudio({
+          bytes: await blob.arrayBuffer(),
+          mimeType: blob.type,
+          prompt: configuredActionPrompt("dictation").replaceAll(TEXT_BLOCK_TOKEN, "").trim(),
+        });
         state.pendingDictationText = String(result.text || "").trim();
         state.helperSourceText = state.pendingDictationText;
         state.pendingDictationTarget = state.pendingDictationText ? { ...recording.target } : null;
@@ -2129,6 +2261,7 @@ function clearMiniTarget() {
   state.lastAgentResult = "";
   state.lastResultApplied = false;
   state.lastResultTarget = null;
+  state.lastChatResultTarget = null;
   state.manualReviewPending = false;
   state.pendingDictationTarget = null;
   state.lastAgentMeta = emptyAgentMeta();
@@ -2287,7 +2420,23 @@ window.radimoAgent.onEvent((event) => {
     setMiniWorkingState(false);
     if (isApiBackend()) void refreshUsageStatus();
     if (state.activeTask === "discussion") {
-      updateChatAssistant(state.lastAgentText.trim() ? state.lastAgentText : "Keine Antwort erhalten.", { immediate: true });
+      const chatResult = parseChatResult(state.lastAgentText);
+      if (chatResult.structured) {
+        const answer = [chatResult.answer, formatChatNotes(chatResult.meta)].filter(Boolean).join("\n\n");
+        state.lastAgentResult = chatResult.text;
+        state.lastResultTask = "proposal";
+        state.lastResultTarget = state.lastChatResultTarget;
+        state.lastResultApplied = false;
+        state.manualReviewPending = false;
+        renderAgentNotes(chatResult.meta);
+        $("miniReviewText").value = chatResult.text;
+        renderReviewDiff(state.lastSourceText, chatResult.text);
+        updateChatAssistant(answer || "Textvorschlag bereit.", { immediate: true });
+        appendChatProposal(chatResult.text, chatResult.meta);
+        setMiniInsertState();
+      } else {
+        updateChatAssistant(chatResult.answer || "Keine Antwort erhalten.", { immediate: true });
+      }
       state.chatAssistantNode = null;
       state.activeTask = "";
       helperSetStatus("Chat bereit.", "Chat");

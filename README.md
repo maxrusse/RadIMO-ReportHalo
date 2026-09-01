@@ -39,11 +39,11 @@ The current German labels are the primary workflow; the icon and tooltip remain 
 | Bottom middle | **Beurteilung ergänzen** | Adds a draft assessment below the existing content; it does not replace the report. |
 | Bottom right | **Ergebnis prüfen** | Opens a before/after diff and an editable result view. Copy, save, manual revision, and deliberate transfer are available there. |
 
-The right edge opens **Text & Chat** or **Kontext**. The lower edge opens Chat directly. Right-click the center to switch between the compact and larger floating Cub; attached panels keep their native sizes and do not cover the outer controls. Captured external text is automatically discussion context; a proposal created by Chat starts in the local Text pane and never writes to the foreign field by itself.
+The right edge opens **Text & Chat** or **Kontext**. The lower edge opens Chat directly. Right-click the center to switch between the compact and larger floating Cub; attached panels keep their native sizes and do not cover the outer controls. Right-click any prompt-bearing button to open its full per-user prompt; the core menu exposes all prompt-bearing functions in one central settings panel. The current workfield is inserted through the `{{TEXT_BLOCK}}` template token, or appended as a delimited block when a custom prompt omits it. Captured external text is automatically discussion context; a proposal created by Chat starts in the local Text pane and never writes to the foreign field by itself.
 
 ## Safety boundary
 
-Lektorat is conservative. ReportHalo preserves numbers, units, laterality, anatomy, negations, uncertainty, dates, temporal qualifiers, and recommendations. Non-chat actions return a compact result: only `text` can be transferred, while `changes`, unclear points, and possible logical or medical issues stay in Chat. Manual review can be required per action. The RIS or editor remains the authoritative record.
+Lektorat is conservative. ReportHalo preserves numbers, units, laterality, anatomy, negations, uncertainty, dates, temporal qualifiers, and recommendations. Non-chat actions return a compact result: only `text` can be transferred, while `changes`, unclear points, and possible logical or medical issues stay in Chat. If a user explicitly asks for a reusable correction during Chat, the reply can include the same structured `text` block and metadata; discussion-only replies remain plain. Manual review can be required per action. The RIS or editor remains the authoritative record.
 
 ## Run and build
 

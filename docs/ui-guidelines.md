@@ -20,7 +20,7 @@ There is one native product BrowserWindow. Chat, Textquelle, Context, Review, an
 | bottom middle | assessment |
 | bottom right | review result |
 
-The classic header bar is gone. The transparent Orb has no permanent top control row; account/settings and close are in the core's right-click menu, while the signal core shows online/offline state. The center signal core is the native drag region. The target cell's right-click menu exposes selection/copy/reset only when relevant. The right bar opens the combined Text & Chat workspace; the bottom Chat control opens the same workspace with chat focus. The left pane shows the current text context or a local proposal, the right pane holds the discussion. Context remains a separate panel. Clicking either Text or Chat while the workspace is active closes it; the action-settings panel additionally has a labelled close control.
+The classic header bar is gone. The transparent Orb has no permanent top control row; account/settings and close are in the core's right-click menu, while the signal core shows online/offline state. The center signal core is the native drag region. The target cell's right-click menu exposes selection/copy/reset only when relevant. The right bar opens the combined Text & Chat workspace; the bottom Chat control opens the same workspace with chat focus. The left pane shows the current text context or a local proposal, the right pane holds the discussion. Context remains a separate panel. Clicking either Text or Chat while the workspace is active closes it; the action-settings panel additionally has a labelled close control. Right-clicking a prompt-bearing button opens that button's full prompt; the core menu opens the same settings panel with all prompt-bearing functions available.
 
 ## Aktive Arbeitsfläche auswählen
 
@@ -35,6 +35,7 @@ The target identity includes process, native window, automation ID, control type
 - The closed Halo Cub is 180 × 190 px by default, with a 140 × 140 px 3×3 board and 28 px edge controls. Right-clicking the core toggles a 360 × 380 px standard floating Cub; this is still the same single-window companion, not a desktop workspace. Attached panels keep their existing native sizes and begin outside the outer edge controls.
 - Only the center signal core is a `-webkit-app-region: drag` zone. Buttons, inputs, panels, and text areas are `no-drag`; no renderer pointer-move loop is used.
 - The panel deck is a separate grid track in normal layout flow; it never covers or squeezes the 3×3 board with an unrelated absolute overlay.
+- Action settings expose the complete per-user function prompt. Text actions include the `{{TEXT_BLOCK}}` template token; the current workfield is inserted there, or appended as a clearly delimited block when a custom prompt omits it. Chat receives the current workfield and the latest action notes; an explicitly requested reusable correction may return a structured `text` block, while discussion-only replies stay plain and concise.
 
 ## Visual system
 

@@ -1,6 +1,7 @@
 const { assertSecureApiUrl } = require("./agent-api-config");
 
 const MAX_AUDIO_BYTES = 20 * 1024 * 1024;
+const MAX_TRANSCRIPTION_PROMPT_CHARS = 4_000;
 const DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-transcribe";
 const TRANSCRIPTION_PROMPT = [
   "German radiology dictation.",
@@ -50,11 +51,16 @@ function validateAzureCredential(value) {
   return credential;
 }
 
-function transcriptionForm(audio) {
+function normalizeTranscriptionPrompt(value) {
+  const prompt = String(value || "").trim();
+  return (prompt || TRANSCRIPTION_PROMPT).slice(0, MAX_TRANSCRIPTION_PROMPT_CHARS);
+}
+
+function transcriptionForm(audio, prompt = TRANSCRIPTION_PROMPT) {
   const form = new FormData();
   form.append("file", new Blob([audio.bytes], { type: audio.mimeType }), `radimoagent-dictation.${audio.extension}`);
   form.append("language", "de");
-  form.append("prompt", TRANSCRIPTION_PROMPT);
+  form.append("prompt", normalizeTranscriptionPrompt(prompt));
   form.append("response_format", "json");
   return form;
 }
@@ -87,11 +93,11 @@ async function probeTranscriptionModel({ apiKey, fetchImpl, model = DEFAULT_TRAN
   return { ok: true, model: result.id };
 }
 
-async function transcribeAudio({ payload, apiKey, fetchImpl, model = DEFAULT_TRANSCRIPTION_MODEL } = {}) {
+async function transcribeAudio({ payload, apiKey, fetchImpl, model = DEFAULT_TRANSCRIPTION_MODEL, prompt = TRANSCRIPTION_PROMPT } = {}) {
   if (typeof fetchImpl !== "function") throw new Error("No OpenAI transport is available.");
   const key = validateApiKey(apiKey);
   const audio = normalizeAudioPayload(payload);
-  const form = transcriptionForm(audio);
+  const form = transcriptionForm(audio, prompt);
   form.append("model", model);
 
   const response = await fetchImpl("https://api.openai.com/v1/audio/transcriptions", {
@@ -123,7 +129,7 @@ function azureResourceEndpoint(endpoint) {
   return url.toString().replace(/\/+$/, "");
 }
 
-async function transcribeAzureAudio({ payload, apiKey, authMode = "api-key", endpoint, deployment, apiVersion = "2024-10-21", fetchImpl } = {}) {
+async function transcribeAzureAudio({ payload, apiKey, authMode = "api-key", endpoint, deployment, apiVersion = "2024-10-21", fetchImpl, prompt = TRANSCRIPTION_PROMPT } = {}) {
   if (typeof fetchImpl !== "function") throw new Error("No Azure OpenAI transport is available.");
   const credential = validateAzureCredential(apiKey);
   const audio = normalizeAudioPayload(payload);
@@ -132,7 +138,7 @@ async function transcribeAzureAudio({ payload, apiKey, authMode = "api-key", end
   const version = String(apiVersion || "2024-10-21").trim();
   const url = `${azureResourceEndpoint(endpoint)}/openai/deployments/${encodeURIComponent(deploymentName)}/audio/transcriptions?api-version=${encodeURIComponent(version)}`;
   const headers = authMode === "api-key" ? { "api-key": credential } : { Authorization: `Bearer ${credential}` };
-  const form = transcriptionForm(audio);
+  const form = transcriptionForm(audio, prompt);
   form.append("model", deploymentName);
   const response = await fetchImpl(url, {
     method: "POST",
@@ -155,8 +161,10 @@ async function transcribeAzureAudio({ payload, apiKey, authMode = "api-key", end
 module.exports = {
   DEFAULT_TRANSCRIPTION_MODEL,
   MAX_AUDIO_BYTES,
+  MAX_TRANSCRIPTION_PROMPT_CHARS,
   TRANSCRIPTION_PROMPT,
   normalizeAudioPayload,
+  normalizeTranscriptionPrompt,
   probeTranscriptionModel,
   transcribeAzureAudio,
   transcribeAudio,

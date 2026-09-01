@@ -52,12 +52,13 @@
               </section>
 
               <section class="mini-attached-panel mini-config-panel hidden" id="miniConfigDrawer" aria-labelledby="miniConfigTitle">
-                <div class="attached-panel-head"><div><span class="eyebrow">ANPASSEN</span><h2 id="miniConfigTitle">Aktion</h2></div></div>
-                <label class="field-label" for="miniConfigAction">Funktion<select id="miniConfigAction" aria-label="Funktion auswählen"><option value="write">Klarer formulieren</option><option value="correction">Lektorat</option><option value="structure">Strukturieren</option><option value="assessment">Beurteilung ergänzen</option></select></label>
-                <label class="config-toggle"><input type="checkbox" id="miniConfigVisible" /> Im 3×3 anzeigen</label>
-                <label class="config-toggle"><input type="checkbox" id="miniConfigManualReview" /> Vor Übernahme im Editor prüfen</label>
-                <label class="field-label config-prompt-label" for="miniConfigPrompt">Zusatzwunsch<textarea id="miniConfigPrompt" rows="7" placeholder="Optional: kurze zusätzliche Vorgabe…"></textarea></label>
-                <small id="miniConfigNote" class="attached-panel-status">Wenn aktiv, öffnet das Ergebnis zuerst den Editor. Erst danach wird es in „Ergebnis prüfen“ übernommen.</small>
+                <div class="attached-panel-head"><div><span class="eyebrow">FUNKTIONSEINSTELLUNGEN</span><h2 id="miniConfigTitle">Aktion</h2></div></div>
+                <label class="field-label" for="miniConfigAction">Funktion<select id="miniConfigAction" aria-label="Funktion auswählen"><option value="write">Klarer formulieren</option><option value="correction">Lektorat</option><option value="structure">Strukturieren</option><option value="assessment">Beurteilung ergänzen</option><option value="discussion">Chat</option><option value="proposal">Vorschlag ins Textfeld</option><option value="dictation">Diktat</option></select></label>
+                <label class="config-toggle" id="miniConfigVisibleRow"><input type="checkbox" id="miniConfigVisible" /> Im 3×3 anzeigen</label>
+                <label class="config-toggle" id="miniConfigManualReviewRow"><input type="checkbox" id="miniConfigManualReview" /> Vor Übernahme im Editor prüfen</label>
+                <label class="field-label config-prompt-label" for="miniConfigPrompt">Vollständiger Funktionsprompt<textarea id="miniConfigPrompt" rows="7" maxlength="8000" placeholder="Funktionsprompt…"></textarea></label>
+                <small id="miniConfigPromptHint" class="attached-panel-status">Der vollständige Prompt für diese Funktion.</small>
+                <small id="miniConfigNote" class="attached-panel-status">Das Arbeitsfeld wird automatisch als Textblock mitgegeben. Mit {{TEXT_BLOCK}} kannst du den Block im Prompt an einer eigenen Stelle einsetzen.</small>
                 <div class="attached-panel-actions"><button class="mini-panel-button" id="miniConfigClose" title="Einstellungen schließen" aria-label="Einstellungen schließen">Schließen</button><button class="mini-panel-button" id="miniConfigReset" title="Aktion zurücksetzen" aria-label="Aktion zurücksetzen">Zurücksetzen</button><button class="mini-panel-button is-primary" id="miniConfigSave" title="Aktion speichern" aria-label="Aktion speichern">Speichern</button></div>
               </section>
 
@@ -101,10 +102,10 @@
             <button class="mini-context-menu-button hidden" id="miniContextSelection" role="menuitem">Auswahl aktivieren</button>
             <button class="mini-context-menu-button hidden" id="miniContextCopy" role="menuitem">Text kopieren</button>
             <button class="mini-context-menu-button hidden" id="miniContextReset" role="menuitem">Arbeitsfeld lösen</button>
-            <button class="mini-context-menu-button hidden" id="miniContextConfigure" role="menuitem">Prompt &amp; Anzeige</button>
+            <button class="mini-context-menu-button hidden" id="miniContextConfigure" role="menuitem">Button-Einstellungen</button>
             <button class="mini-context-menu-button hidden" id="miniContextVisibility" role="menuitem">Aktion ausblenden</button>
             <button class="mini-context-menu-button hidden" id="miniContextCubeSize" role="menuitem">Größere Cub-Ansicht</button>
-            <button class="mini-context-menu-button" id="miniContextSettings" role="menuitem">Einstellungen</button>
+            <button class="mini-context-menu-button" id="miniContextSettings" role="menuitem">Konto &amp; Verbindung</button>
             <button class="mini-context-menu-button" id="miniContextClose" role="menuitem">Ausblenden</button>
             <button class="mini-context-menu-button is-danger" id="miniContextQuit" role="menuitem">Beenden</button>
           </nav>
