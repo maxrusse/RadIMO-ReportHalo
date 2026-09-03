@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld("radimoAgent", {
   openClinicSourceRoot: () => ipcRenderer.invoke("clinic:open-root"),
   readClinicSource: (payload) => ipcRenderer.invoke("clinic:read-source", payload),
   writeClipboard: (text) => ipcRenderer.invoke("clipboard:write", text),
+  readClipboard: () => ipcRenderer.invoke("clipboard:read"),
   readFocusedField: (options) => ipcRenderer.invoke("field:read-focused", options),
   writeFocusedField: (payload) => ipcRenderer.invoke("field:write-focused", payload),
   focusMappedField: (payload) => ipcRenderer.invoke("field:focus-mapped", payload),
@@ -71,12 +72,12 @@ contextBridge.exposeInMainWorld("radimoAgent", {
     return () => ipcRenderer.removeListener("workflow:state", listener);
   },
   onToggleDictation: (callback) => {
-    const listener = () => callback();
+    const listener = (_event, payload) => callback(payload || {});
     ipcRenderer.on("helper:toggle-dictation", listener);
     return () => ipcRenderer.removeListener("helper:toggle-dictation", listener);
   },
   onCaptureFocusedField: (callback) => {
-    const listener = () => callback();
+    const listener = (_event, payload) => callback(payload || {});
     ipcRenderer.on("helper:capture-field", listener);
     return () => ipcRenderer.removeListener("helper:capture-field", listener);
   },

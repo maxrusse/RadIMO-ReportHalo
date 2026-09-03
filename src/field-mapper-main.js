@@ -1,6 +1,6 @@
 const path = require("node:path");
 const fs = require("node:fs/promises");
-const { app, BrowserWindow, clipboard, dialog, globalShortcut } = require("electron");
+const { app, BrowserWindow, clipboard, dialog } = require("electron");
 const { scanFieldWindow } = require("./windows-field-bridge");
 const {
   buildFieldMapReport,
@@ -52,18 +52,13 @@ async function runScan({ readValues = false, windowHandle = "" } = {}) {
   const raw = await scanFieldWindow({
     windowHandle: requestedWindow,
     helperWindowHandle: nativeWindowHandle(),
+    accessMode: "uia",
     profile,
     readValues,
   });
   if (!raw?.ok) return raw;
   if (raw.windowHandle) lastTargetWindowHandle = String(raw.windowHandle);
   return buildFieldMapReport(raw, profile, { readValues });
-}
-
-async function scanForegroundFromShortcut() {
-  const report = await runScan({ readValues: false, windowHandle: null });
-  send("field-mapper:scan-complete", report);
-  if (mapperWindow && !mapperWindow.isDestroyed()) mapperWindow.showInactive();
 }
 
 async function createWindow() {
@@ -126,7 +121,6 @@ if (!hasSingleInstanceLock) {
   app.whenReady().then(async () => {
     await ensureProfile();
     await createWindow();
-    if (process.platform === "win32") globalShortcut.register("CommandOrControl+Shift+F", () => { void scanForegroundFromShortcut(); });
   }).catch((error) => {
     dialog.showErrorBox(APP_NAME, error?.message || String(error));
     app.quit();
@@ -135,7 +129,6 @@ if (!hasSingleInstanceLock) {
     if (quitting) return;
     event.preventDefault();
     quitting = true;
-    globalShortcut.unregisterAll();
     app.quit();
   });
   app.on("window-all-closed", () => app.quit());

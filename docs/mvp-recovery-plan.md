@@ -4,7 +4,7 @@
 
 RadIMO – ReportHalo is a small Windows reporting companion for radiologists. The RIS, Word, or other foreign editor remains the authoritative report surface. RadIMO – ReportHalo starts as one always-on-top, icon-first Floating Orb and does not open a second work surface.
 
-The Orb uses a 3×3 action matrix with compact right/bottom controls. The top-left cell identifies the active window or editable field, accepts a text drop, and shows the target's lock/clear state. The target cell can capture a full field; its right-click menu can request an explicit selection, record dictation, run a focused AI task, and show the result in an attached panel. Chat, Textquelle, Context, Review, and Account panels are part of the same native window, so they move with the Orb. After explicit target activation and identity validation, AI output replaces the external field directly; dictation remains pending until the user explicitly transfers it.
+The Orb uses a 3×3 action matrix with compact right/bottom controls. The top-left cell identifies the active field when an explicit UIA attempt succeeds, accepts a text drop, and shows the target's lock/clear state. The supported DMO/RIS fallback is to copy the marked text and import it explicitly from the clipboard. Chat, Textquelle, Context, Review, and Account panels are part of the same native window, so they move with the Orb. Only a verified UIA target may receive direct replacement; otherwise the result stays local and is prepared for deliberate paste/check.
 
 ## Audit findings on 2026-08-25
 
@@ -12,7 +12,7 @@ The Orb uses a 3×3 action matrix with compact right/bottom controls. The top-le
 - The renderer now resolves the requested fast model from the live catalog, prefers `gpt-5.3-codex-spark` when advertised, and falls back to the supported `gpt-5.6-luna` with low reasoning effort.
 - The helper's `Diktieren` action relied on Chromium's optional `SpeechRecognition` interface. The packaged Electron runtime does not provide a dependable transcription service, so the control commonly reported that dictation was unavailable.
 - The old helper and desktop exposed many overlapping element IDs, modes, and transfer routes. The 0.2.10 pass removes the visible large desktop surface, keeps one action path per function, and attaches temporary panels to the Orb.
-- Active-field capture now starts from the Windows UI Automation focused element, retries transient focus loss, prefers `ValuePattern`, uses `TextPattern` for explicit selection or document text, and preserves the target identity for guarded write-back.
+- Active-field capture has an explicit clipboard-first default. The opt-in UIA path can use the focused or cursor-point element, prefers `ValuePattern`, uses `TextPattern` for explicit selection or document text, and preserves the target identity for guarded write-back. It does not use the legacy native fallback unless compatibility mode is explicitly selected.
 - The previous automated test and smoke harness was too brittle for the current UI iteration. It is retired for now and stored outside the repository in `work/_archive/radimoagent_cleanup_20260826/tests-retired-20260826/` so it can be revisited without remaining part of the release check.
 
 ## Current architecture
@@ -21,7 +21,7 @@ The Orb uses a 3×3 action matrix with compact right/bottom controls. The top-le
 - Use the official Codex CLI as an external runtime. Prefer the live `gpt-5.3-codex-spark` entry when advertised and use the documented `gpt-5.6-luna` fallback if discovery is unavailable. The runtime version and installer digest are pinned in `codex-runtime.json`; the app detects an official installation and `Install-Codex.ps1` performs a verified post-install when it is absent.
 - Record microphone audio in the local renderer with `MediaRecorder`. Send the completed audio buffer to the Electron main process.
 - Transcribe in the main process through `POST /v1/audio/transcriptions` with `gpt-4o-transcribe` and a German radiology vocabulary prompt. A standard API key is never exposed to renderer JavaScript; it is encrypted with the operating-system-backed Electron `safeStorage` API.
-- Keep raw transcription separate from AI correction. The transcript stays pending in the Orb until the user chooses the explicit insert action. Correction, write-out, structure/complete, and assessment return a compact text-plus-metadata envelope; only the text replaces a locked target, while the metadata goes to Chat. Discussion stays Chat-only and never writes to a foreign field.
+- Keep raw transcription separate from AI correction. The transcript stays pending in the Orb until the user chooses the explicit insert action. Correction, write-out, and structure return complete replacement text; assessment returns a labelled `Beurteilung: …` addendum. Only the intended text reaches a locked target, while the metadata goes to Chat. Discussion stays Chat-only and never writes to a foreign field.
 - Preserve explicit target activation and verified transfer. AI results may replace only the explicitly locked target; stale clipboard contents are never treated as the active field implicitly.
 
 ## Iterations
@@ -42,10 +42,10 @@ Status: implemented through the 0.2.10 design pass.
 
 - Use native frameless-window dragging and bounded position persistence; avoid renderer drag loops.
 - Keep one compact startup surface with a fixed base size and panel-specific native expansion.
-- Provide focused-field capture, explicit selection capture, target identity, direct value writes, clipboard restoration, and read-back verification.
+- Provide clipboard import as the dependable cross-RIS path, plus opt-in focused-field capture, explicit selection capture, target identity, safe UIA value writes, clipboard fallback, and read-back verification.
 - Keep visible recording level, elapsed time, cancellation, and segmented long-dictation handling.
 - Attach Chat, Textquelle, Context, Review, and Account surfaces to the Orb instead of creating a second window; active side buttons close their own panel.
-- Show the last result as a right-side before/after Diff with a separate editable Text view.
+- Show the last result as complete editable Text with an optional character-level before/after Diff; assessment keeps the source visible and appends only its labelled `Beurteilung: …` addendum.
 - Use the IP-neutral signal-core SVG as the Orb's ready indicator and one slow, restrained orbital motion while working.
 - Remove duplicate renderer controls, duplicate IPC routes, stale large-surface styles, and retired test harness files from the active repository.
 

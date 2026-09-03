@@ -4,7 +4,7 @@ Status: 0.2.11 uses the compact Halo Cub as its only product window; longer work
 
 ## Product decision
 
-RadIMO – ReportHalo stays beside the RIS, Word, or another Windows editor as one always-on-top Orb. There is no large desktop mode, no second product BrowserWindow, and no visible mode selector. The temporary screen-region selector is an implementation overlay, not a second product surface. The foreign editor remains authoritative; after the user explicitly locks a target, correction and structure replace that field directly after identity validation, while assessment appends below the existing content. Without a locked target, the result remains available in the attached result panel.
+RadIMO – ReportHalo stays beside the RIS, Word, or another Windows editor as one always-on-top Orb. There is no large desktop mode, no second product BrowserWindow, and no visible mode selector. The temporary screen-region selector is an implementation overlay, not a second product surface. The foreign editor remains authoritative; after the user explicitly locks a target, correction and structure replace that field directly after identity validation, while assessment appends below the existing content. Without a locked target, the complete result opens in the attached Text & Chat workspace for discussion and deliberate local editing.
 
 ## Orb map
 
@@ -34,21 +34,21 @@ The compact base is 180 × 190 px, with a 140 × 140 px 3×3 board. Right-clicki
 
 ## Active Arbeitsfläche auswählen
 
-The top-left 3×3 target cell is both the compact status surface and a text drop target. Clicking it activates the focused external field without taking focus from it; the field identity stays locked while ReportHalo works. Its X clears the target or local source. The target cell's right-click menu reads marked text only when selection capture is requested. Dropped text becomes a local source and never silently becomes a foreign-app write target.
+The top-left 3×3 target cell is both the compact status surface and a text drop target. In the default clipboard mode it opens the explicit DMO/RIS copy workflow; in UIA mode it can activate the focused or cursor-point field without taking focus from it. Its X clears the target or local source. The target cell's right-click menu reads marked text only when selection capture is requested. Dropped text becomes a local source and never silently becomes a foreign-app write target.
 
 The main-process bridge uses this order:
 
-1. Windows UI Automation `FocusedElement` with a short retry for a control that disappears during a redraw.
+1. Explicit clipboard import as the default DMO/RIS path; opt-in Windows UI Automation `FocusedElement` or cursor-point lookup with a short retry for a control that disappears during a redraw.
 2. The focused element's stable identity (`ProcessId`, `AutomationId`, control type, runtime ID, and name), plus its top-level native window resolved from `NativeWindowHandle` with the foreground window as fallback.
 3. `ValuePattern` for a complete readable field.
 4. `TextPattern.GetSelection()` for an explicit selection, or `TextPattern.DocumentRange` for the complete text.
-5. No implicit clipboard read. Drag-and-drop is the explicit text fallback.
+5. No implicit clipboard read. The user explicitly invokes clipboard import; drag-and-drop remains an explicit text fallback.
 
 Selection capture does not silently degrade to the whole field when no text is selected. Before insertion, the bridge rechecks the saved top-level window and process/control/runtime identity and verifies the result when the control is readable.
 
 ## AI and insertion flow
 
-Correction, write-out, structure/complete, and assessment send directly from the Orb. Their model response is a compact JSON envelope: `text` is the complete action result; `changes`, `unclear`, `logicIssues`, and `medicalIssues` are short metadata lists. Only `text` can reach the external field. Captured field text and local Text content are automatically included as discussion context; no copy step is needed. Chat can remain conversational, or `Vorschlag ins Textfeld` can request a proposal envelope. A proposal is always opened in the local Text pane, can be edited or dragged as a local source, and never changes the foreign field. On completion, a locked external target receives correction and structure as replacements, while assessment is appended below existing content, each only after bridge validation. A per-action `Vor Übernahme im Editor prüfen` setting diverts the result into the same Text pane without touching the foreign field; `Zur Prüfung` then opens the manually revised text in Review, and `Übernehmen` performs the final replacement or append. Metadata is posted into the Chat pane, where the user can continue the discussion. Chat is the only verbose surface and never writes its answer to a foreign field. The center is status-only: it shows an IP-neutral signal-core mark when ready and one slow, restrained orbital indicator while the agent works. Without a target, the result is kept locally and no foreign field is touched.
+Correction, write-out, structure/complete, and assessment return a compact JSON envelope: `text` is the complete action result for replacement actions and the addendum for assessment; `changes`, `unclear`, `logicIssues`, and `medicalIssues` are short metadata lists. Only `text` can reach the external field. Captured field text and local Text content are automatically included as discussion context when available; clipboard import is explicit when UIA is unavailable. Chat can remain conversational, or `Vorschlag ins Textfeld` can request a proposal envelope. A proposal is always opened in the local Text pane, can be edited or dragged as a local source, and never changes the foreign field. On completion, a verified UIA target may receive correction and structure as replacements, while assessment is appended as a labelled `Beurteilung: …` addendum below existing content; otherwise the complete result opens locally in Text & Chat and is prepared for deliberate RIS paste/check. A per-action `Vor Übernahme im Editor prüfen` setting diverts the result into the same Text pane without touching the foreign field; `Zur Prüfung` then opens the manually revised text in Review, and `Übernehmen` performs the final replacement or append. Metadata is posted into the Chat pane and shown below the result text, where the user can continue the discussion. Chat is the only verbose surface and never writes its answer to a foreign field. The center is status-only: it shows an IP-neutral signal-core mark when ready and one slow, restrained orbital indicator while the agent works. Without a target, no foreign field is touched.
 
 ## Performance and safety
 
@@ -61,7 +61,7 @@ Correction, write-out, structure/complete, and assessment send directly from the
 - Never treat stale clipboard content as the active field.
 - Preserve numbers, units, laterality, anatomy, negation, uncertainty, dates, temporal qualifiers, and recommendations in radiology text.
 - Keep target activation opt-in and verify every automatic foreign-field replacement where the Windows control permits read-back.
-- Show the last result as a right-side before/after Diff by default; keep the replacement text in a separate editable Text view.
+- Show the last result as complete editable Text by default; offer an optional character-level before/after Diff so moved text does not create misleading whole-line highlights. Keep changes and clinical/logical review points in the notes and Chat surfaces. Assessment keeps the original text visible and transfers only its labelled `Beurteilung: …` addendum.
 
 ## Implementation cleanup
 
@@ -69,4 +69,4 @@ The 0.2.10 pass removes the desktop shell, desktop-only target/composer/canvas c
 
 ## References
 
-The active-field pattern follows Microsoft's UI Automation guidance for retrieving the focused element and using control patterns, especially `FocusedElement`, `TextPattern.GetSelection()`, and `ValuePattern`. Native movement follows Electron's frameless `app-region: drag`, `setSize`, and `setFocusable` model. General visual spacing continues to follow Fluent 2 and WCAG 2.1 AA.
+The opt-in active-field pattern follows Microsoft's UI Automation guidance for retrieving the focused element and using control patterns, especially `FocusedElement`, `TextPattern.GetSelection()`, and `ValuePattern`. The default DMO/RIS text path is explicit clipboard import. Native movement follows Electron's frameless `app-region: drag`, `setSize`, and `setFocusable` model. General visual spacing continues to follow Fluent 2 and WCAG 2.1 AA.

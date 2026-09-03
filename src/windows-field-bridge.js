@@ -1,6 +1,12 @@
 const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
 const { normalizeFieldMapperProfile } = require("./windows-field-mapper");
+const {
+  focusSafeMappedField,
+  readSafeFocusedField,
+  scanSafeFieldWindow,
+  writeSafeFocusedField,
+} = require("./windows-safe-field-bridge");
 
 const POWERSHELL = `
 $ErrorActionPreference = 'Stop'
@@ -747,7 +753,7 @@ function fieldEnvironment(target) {
   };
 }
 
-async function readFocusedField({ selectionOnly = false, helperWindowHandle = "", windowHandle = "", processId = "", controlWindowHandle = "" } = {}) {
+async function readLegacyFocusedField({ selectionOnly = false, helperWindowHandle = "", windowHandle = "", processId = "", controlWindowHandle = "" } = {}) {
   if (controlWindowHandle && !windowHandle) return { ok: false, error: "target-window-required" };
   const result = await runPowerShell({
     RADIMO_FIELD_SELECTION_ONLY: selectionOnly ? "true" : "false",
@@ -764,7 +770,7 @@ async function readFocusedField({ selectionOnly = false, helperWindowHandle = ""
   return result;
 }
 
-async function writeFocusedField({ text, target } = {}) {
+async function writeLegacyFocusedField({ text, target } = {}) {
   if (typeof text !== "string" || !text.trim()) return { ok: false, verified: false, error: "empty-text" };
   if (!target?.windowHandle) return { ok: false, verified: false, error: "no-target-window" };
   if (target.supportsWrite === false) return { ok: false, verified: false, error: "target-read-only" };
@@ -784,7 +790,7 @@ async function writeFocusedField({ text, target } = {}) {
   return result;
 }
 
-async function scanFieldWindow({ windowHandle = "", target = null, helperWindowHandle = "", profile, readValues = false } = {}) {
+async function scanLegacyFieldWindow({ windowHandle = "", target = null, helperWindowHandle = "", profile, readValues = false } = {}) {
   const normalizedProfile = normalizeFieldMapperProfile(profile);
   const configBase64 = Buffer.from(JSON.stringify(normalizedProfile), "utf8").toString("base64");
   const result = await runPowerShell({
@@ -808,7 +814,7 @@ async function scanFieldWindow({ windowHandle = "", target = null, helperWindowH
   return result;
 }
 
-async function focusMappedField({ windowHandle = "", target = null, helperWindowHandle = "" } = {}) {
+async function focusLegacyMappedField({ windowHandle = "", target = null, helperWindowHandle = "" } = {}) {
   const resolvedWindow = String(windowHandle || target?.windowHandle || "");
   const resolvedTarget = target || {};
   if (!resolvedWindow) return { ok: false, verified: false, error: "no-target-window" };
@@ -822,6 +828,31 @@ async function focusMappedField({ windowHandle = "", target = null, helperWindow
     RADIMO_FIELD_CONTROL_TYPE: String(resolvedTarget.controlType || ""),
     RADIMO_FIELD_NAME: String(resolvedTarget.name || resolvedTarget.title || ""),
   }, FIELD_FOCUS_POWERSHELL, 10000);
+}
+
+function isCompatibilityMode(options = {}) {
+  return options.accessMode === "compatibility" || options.compatibilityAutomation === true || options.target?.accessMode === "compatibility";
+}
+
+async function readFocusedField(options = {}) {
+  if (options.accessMode === "clipboard") return { ok: false, error: "clipboard-source-required", accessibility: "clipboard" };
+  if (isCompatibilityMode(options)) return readLegacyFocusedField(options);
+  return readSafeFocusedField(options);
+}
+
+async function writeFocusedField(options = {}) {
+  if (isCompatibilityMode(options)) return writeLegacyFocusedField(options);
+  return writeSafeFocusedField(options);
+}
+
+async function scanFieldWindow(options = {}) {
+  if (isCompatibilityMode(options)) return scanLegacyFieldWindow(options);
+  return scanSafeFieldWindow(options);
+}
+
+async function focusMappedField(options = {}) {
+  if (isCompatibilityMode(options)) return focusLegacyMappedField(options);
+  return focusSafeMappedField(options);
 }
 
 module.exports = { fieldEnvironment, focusMappedField, readFocusedField, scanFieldWindow, writeFocusedField };

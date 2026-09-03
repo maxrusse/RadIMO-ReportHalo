@@ -12,12 +12,12 @@
       <header class="hero">
         <div class="kicker">RADIMO · REPORTHALO</div>
         <h1>Field Mapper</h1>
-        <p>Inspect an RIS window and read only the configured context fields. This tool uses Windows UI Automation locally; it does not need an API key or send data anywhere.</p>
+        <p>Inspect an RIS window and read only the configured context fields. This is an explicit local UI Automation diagnostic; it does not need an API key or send data anywhere. DMO/RIS controls that expose no UIA text remain invisible here.</p>
       </header>
 
       <section class="card controls">
         <div class="actions"><button class="primary" id="scanFields">Scan foreground</button><button id="readContext">Read configured context</button><button id="saveProfile">Save mapping</button><button id="resetProfile">Reset</button><button id="copyReport">Copy report</button><button id="saveReport">Save report</button></div>
-        <p class="hint">Activate the RIS window and press <kbd>Ctrl+Shift+F</kbd>. The shortcut captures the foreground window without selecting a field. After the first scan, the buttons below use that stored window.</p>
+        <p class="hint">Activate the RIS window, then click <strong>Scan foreground</strong>. The utility does not scan or start automation on launch. If DMO/RIS exposes no UIA text, use the main app’s explicit clipboard workflow.</p>
         <p class="status" id="status">Ready. No window inspected.</p>
       </section>
 

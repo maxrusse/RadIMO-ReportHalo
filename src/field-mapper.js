@@ -82,7 +82,9 @@ function renderReport(report) {
     item.append(title, note);
     allFields.append(item);
   }
-  setStatus(`${diagnostics.readValues ? "Context read" : "Fields inspected"}: ${report.source?.processName || "window"} · ${diagnostics.matchedFields || 0} mapped · ${diagnostics.excludedFields || 0} excluded${diagnostics.truncated ? " · result capped" : ""}.`);
+  const accessibilityNote = diagnostics.strategy === "uia-only" ? " · UIA-only" : "";
+  const inaccessibleNote = diagnostics.inaccessibleFields ? ` · ${diagnostics.inaccessibleFields} not readable` : "";
+  setStatus(`${diagnostics.readValues ? "Context read" : "Fields inspected"}: ${report.source?.processName || "window"} · ${diagnostics.matchedFields || 0} mapped · ${diagnostics.excludedFields || 0} excluded${inaccessibleNote}${diagnostics.truncated ? " · result capped" : ""}${accessibilityNote}.`);
 }
 
 async function loadProfile() {
@@ -106,7 +108,7 @@ async function saveProfile({ quiet = false } = {}) {
 async function scan(readValues) {
   try {
     await saveProfile({ quiet: true });
-    setStatus(readValues ? "Reading configured context…" : "Inspecting the stored/foreground window…");
+    setStatus(readValues ? "Reading configured UIA context…" : "Inspecting the stored/foreground UIA window…");
     const report = await window.reportHaloFieldMapper.scan({ readValues });
     renderReport(report);
     return report;

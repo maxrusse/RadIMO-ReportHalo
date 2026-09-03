@@ -286,7 +286,7 @@ body[data-mini-panel-vertical="top"][data-mini-panel="chat"] .mini-panel-deck::b
 .mini-config-panel .config-toggle input { margin: 0; accent-color: var(--accent); }
 .mini-config-panel .config-prompt-label { min-height: 0; }
 .mini-config-panel .config-prompt-label textarea { height: 100%; min-height: 0; }
-.mini-review-panel { grid-template-rows: auto auto minmax(0, 1fr) auto auto; }
+.mini-review-panel { grid-template-rows: auto auto minmax(0, 1fr) auto auto auto; }
 .mini-chat-panel { grid-template-rows: auto auto minmax(0, 1fr) auto auto; }
 .mini-chat-scope { padding: 2px 0; color: var(--muted) !important; font-size: 10px !important; }
 .mini-review-switcher { display: inline-flex; align-items: center; gap: 3px; padding: 3px; border: 1px solid rgba(145, 194, 193, .12); border-radius: 8px; background: rgba(2, 14, 22, .22); }
@@ -372,6 +372,14 @@ body[data-mini-panel-vertical="top"][data-mini-panel="chat"] .mini-panel-deck::b
 .context-toggle { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 10px; }
 .context-toggle input { accent-color: var(--accent); }
 .field-mapper-panel { display: grid; gap: 8px; }
+.field-access-panel { display: grid; gap: 8px; }
+.field-access-panel select { width: 100%; }
+.mini-review-notes { display: grid; gap: 6px; max-height: 148px; overflow: auto; padding: 8px 9px; border: 1px solid rgba(145, 194, 193, .12); border-radius: 8px; background: rgba(2, 14, 22, .24); color: var(--muted); font-size: 10px; line-height: 1.4; }
+.mini-review-notes:empty { display: none; }
+.mini-review-note-group { display: grid; gap: 2px; }
+.mini-review-note-group strong { color: var(--accent); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
+.mini-review-note-group ul { margin: 0; padding-left: 16px; }
+.mini-review-note-group.is-warning strong { color: var(--warning); }
 .field-mapper-panel textarea { font: 10px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; resize: vertical; }
 .field-mapper-details > summary { color: var(--accent); }
 .field-mapper-items { display: grid; gap: 6px; }

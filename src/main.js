@@ -16,7 +16,7 @@ const {
   profileSummary: fieldMapperProfileSummary,
   saveFieldMapperProfile,
 } = require("./windows-field-mapper");
-const { proxyEndpointFromInternetSettings, readWindowsInternetSettings } = require("./windows-proxy");
+const { parseProxyInput, proxyEndpointFromRules } = require("./windows-proxy");
 const { readReferencePack, readReferenceUrl } = require("./reference-library");
 const { clinicSummary, formatClinicSourcePrompt, loadClinicSourceLibrary, readClinicSource, saveClinicRoot } = require("./clinic-source-library");
 const {
@@ -313,23 +313,35 @@ async function applyGuidance(options = {}) {
   };
 }
 
-function proxyEndpointFromRules(rules) {
-  if (typeof rules !== "string") return null;
-  const match = rules.match(/(?:PROXY|HTTPS|HTTP|SOCKS5?|SOCKS)\s+([^;\s]+)/i);
-  if (!match) return null;
-  const endpoint = match[1];
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(endpoint)) return endpoint;
-  return /^socks/i.test(match[0]) ? `socks5://${endpoint}` : `http://${endpoint}`;
-}
-
 async function resolveCodexEnvironment() {
   const { applyCodexProxy } = require("./codex-proxy-env");
   const env = { ...process.env };
-  const explicitProxy = runtimeProxyOverride || env.RADIMOAGENT_HTTPS_PROXY || env.RADIMOAGENT_HTTP_PROXY;
+  if (runtimeProxyOverride?.mode === "direct") {
+    for (const key of ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"]) delete env[key];
+    log("INFO", "Using explicit direct connection for Codex", { configured: false });
+    return env;
+  }
+  const explicitProxy = runtimeProxyOverride?.mode === "fixed_servers" ? runtimeProxyOverride.endpoint : null;
   if (explicitProxy) {
     const noProxyAdjusted = applyCodexProxy(env, explicitProxy);
     log("INFO", `Using explicit ${APP_NAME} proxy override for Codex`, { configured: true, noProxyAdjusted });
     return env;
+  }
+  if (runtimeProxyOverride?.mode === "pac_script") {
+    try {
+      const rules = await session.defaultSession.resolveProxy("https://auth.openai.com/");
+      const proxy = proxyEndpointFromRules(rules);
+      if (proxy) {
+        const noProxyAdjusted = applyCodexProxy(env, proxy);
+        log("INFO", "Resolved explicit PAC proxy for Codex", { rules, appliedProxy: "yes", noProxyAdjusted });
+      } else {
+        log("INFO", "Explicit PAC resolved to a direct Codex connection", { rules, appliedProxy: "no" });
+      }
+      return env;
+    } catch (error) {
+      log("WARN", "Could not resolve explicit PAC proxy for Codex", { message: error?.message || String(error) });
+      return env;
+    }
   }
   const inheritedProxy = env.HTTPS_PROXY || env.https_proxy || env.HTTP_PROXY || env.http_proxy;
   if (inheritedProxy) {
@@ -348,62 +360,65 @@ async function resolveCodexEnvironment() {
   } catch (error) {
     log("WARN", "Could not resolve system proxy for Codex", { message: error?.message || String(error) });
   }
-  if (!env.HTTPS_PROXY && !env.https_proxy && !env.HTTP_PROXY && !env.http_proxy) {
-    const settings = await readWindowsInternetSettings();
-    const proxy = proxyEndpointFromInternetSettings(settings);
-    if (proxy) {
-      const noProxyAdjusted = applyCodexProxy(env, proxy);
-      log("INFO", "Applied Windows Internet Settings proxy for Codex", {
-        configured: true,
-        pacConfigured: Boolean(settings?.autoConfigUrl),
-        noProxyAdjusted,
-      });
-    } else if (settings?.autoConfigUrl) {
-      log("WARN", "Windows Internet Settings uses a PAC URL without a directly resolved proxy", { pacConfigured: true });
-    }
-  }
   return env;
 }
 
-function validateProxyOverride(value) {
-  if (!value) return null;
-  let parsed;
-  try {
-    parsed = new URL(value);
-  } catch {
-    throw new Error("Proxy must look like http://proxy:port, https://proxy:port, or socks5://proxy:port.");
-  }
-  if (!["http:", "https:", "socks5:", "socks5h:", "socks:", "socks4:"].includes(parsed.protocol) || !parsed.hostname) {
-    throw new Error("Proxy must use http, https, socks, socks4, or socks5 and include a host.");
-  }
-  return value;
-}
-
 function proxyWithCredentials(value, username, password) {
-  const base = validateProxyOverride(value);
+  const config = parseProxyInput(value);
   const user = String(username || "");
   const secret = String(password || "");
-  if (!user && !secret) return base;
-  if (!user || !secret) throw new Error("Enter both proxy username and proxy password, or leave both blank.");
-  const parsed = new URL(base);
-  parsed.username = user;
-  parsed.password = secret;
-  return parsed.toString();
+  if ((!user && secret) || (user && !secret)) throw new Error("Enter both proxy username and proxy password, or leave both blank.");
+  if (!user && !secret && config.mode !== "fixed_servers") return config;
+  if (config.mode !== "fixed_servers") throw new Error("Proxy credentials can only be used with a fixed IP/hostname proxy, not with a PAC script.");
+  const parsed = new URL(config.endpoint);
+  const sessionProxy = new URL(config.proxyRules);
+  const embeddedUser = decodeURIComponent(parsed.username || "");
+  const embeddedPassword = decodeURIComponent(parsed.password || "");
+  if ((!user && embeddedPassword) || (user && !secret && !embeddedPassword) || (!user && secret)) {
+    throw new Error("Enter both proxy username and proxy password, or leave both blank.");
+  }
+  if (!user && !secret && !embeddedUser && !embeddedPassword) return config;
+  parsed.username = user || embeddedUser;
+  parsed.password = secret || embeddedPassword;
+  sessionProxy.username = "";
+  sessionProxy.password = "";
+  const endpoint = parsed.toString().replace(/\/$/, "");
+  const proxyRules = sessionProxy.toString().replace(/\/$/, "");
+  return { ...config, proxyRules, endpoint, username: user || embeddedUser, password: secret || embeddedPassword };
+}
+
+function proxyConfigured(value) {
+  return Boolean(value && value.mode !== "system" && value.configured !== false);
+}
+
+async function applySessionProxy(config) {
+  const effective = config || { mode: "system", configured: false };
+  if (effective.mode === "pac_script") {
+    await session.defaultSession.setProxy({ mode: "pac_script", pacScript: effective.pacScript });
+  } else if (effective.mode === "fixed_servers") {
+    await session.defaultSession.setProxy({ mode: "fixed_servers", proxyRules: effective.proxyRules });
+  } else if (effective.mode === "direct") {
+    await session.defaultSession.setProxy({ mode: "direct" });
+  } else {
+    await session.defaultSession.setProxy({ mode: "system" });
+  }
+  await session.defaultSession.closeAllConnections?.();
 }
 
 async function restartAgentWithProxy(value) {
   const request = typeof value === "object" && value !== null ? value : { url: value };
-  runtimeProxyOverride = proxyWithCredentials(
+  const nextProxy = proxyWithCredentials(
     String(request.url || "").trim(),
     request.username,
     request.password,
   );
+  await applySessionProxy(nextProxy);
+  runtimeProxyOverride = nextProxy.mode === "system" ? null : nextProxy;
   if (BACKEND_MODE === "api") {
-    await session.defaultSession.setProxy({ proxyRules: runtimeProxyOverride || "direct://" });
     currentThreadId = null;
     if (agentClient?.resetConversation) await agentClient.resetConversation();
-    log("INFO", "Direct API proxy updated", { configured: Boolean(runtimeProxyOverride) });
-    return { configured: Boolean(runtimeProxyOverride) };
+    log("INFO", "Direct API proxy updated", { configured: proxyConfigured(runtimeProxyOverride), mode: nextProxy.mode });
+    return { configured: proxyConfigured(runtimeProxyOverride), mode: nextProxy.mode };
   }
   if (agentClient) {
     agentClient.close();
@@ -412,8 +427,8 @@ async function restartAgentWithProxy(value) {
   agentStartPromise = null;
   currentThreadId = null;
   await ensureAgent();
-  log("INFO", "Codex restarted after proxy change", { configured: Boolean(runtimeProxyOverride) });
-  return { configured: Boolean(runtimeProxyOverride) };
+  log("INFO", "Codex restarted after proxy change", { configured: proxyConfigured(runtimeProxyOverride), mode: nextProxy.mode });
+  return { configured: proxyConfigured(runtimeProxyOverride), mode: nextProxy.mode };
 }
 
 function isAllowedExternalUrl(value) {
@@ -441,12 +456,17 @@ async function probeAuthEndpoint() {
 }
 
 async function windowsProxyDiagnostics() {
-  const settings = await readWindowsInternetSettings();
-  return settings ? {
-    enabled: settings.enabled,
-    serverConfigured: Boolean(settings.server),
-    pacConfigured: Boolean(settings.autoConfigUrl),
-  } : null;
+  try {
+    const rules = await session.defaultSession.resolveProxy("https://auth.openai.com/");
+    return {
+      source: "electron-session",
+      rules,
+      endpoint: proxyEndpointFromRules(rules),
+      explicitMode: runtimeProxyOverride?.mode || "system",
+    };
+  } catch (error) {
+    return { source: "electron-session", error: error?.message || String(error), explicitMode: runtimeProxyOverride?.mode || "system" };
+  }
 }
 
 function sendToRenderer(channel, payload) {
@@ -700,16 +720,18 @@ function registerHelperShortcuts({ retry = false } = {}) {
   }
   const toggleRegistered = globalShortcut.register(HELPER_TOGGLE_SHORTCUT, () => { void toggleHelperWindow(); });
   const dictationRegistered = globalShortcut.register(DICTATION_SHORTCUT, async () => {
+    const point = process.platform === "win32" ? screen.getCursorScreenPoint() : null;
     const helper = await createHelperWindow();
     if (process.platform === "win32") helper.setFocusable(false);
     helper.showInactive();
-    helper.webContents.send("helper:toggle-dictation");
+    helper.webContents.send("helper:toggle-dictation", { point });
   });
   const captureRegistered = globalShortcut.register(FIELD_CAPTURE_SHORTCUT, async () => {
+    const point = process.platform === "win32" ? screen.getCursorScreenPoint() : null;
     const helper = await createHelperWindow();
     if (process.platform === "win32") helper.setFocusable(false);
     helper.showInactive();
-    helper.webContents.send("helper:capture-field");
+    helper.webContents.send("helper:capture-field", { point });
   });
   shortcutRegistration = { toggle: toggleRegistered, dictation: dictationRegistered, capture: captureRegistered };
   log(toggleRegistered && dictationRegistered && captureRegistered ? "INFO" : "WARN", "Global helper shortcuts registered", {
@@ -892,7 +914,7 @@ registerIpcHandler("agent:copy-diagnostics", async () => {
   const diagnostics = await (async () => ({
     path: getLogPath(),
     proxyRules: await session.defaultSession.resolveProxy("https://auth.openai.com/").catch((error) => `ERROR: ${error.message}`),
-    proxyOverrideConfigured: Boolean(runtimeProxyOverride || process.env.RADIMOAGENT_HTTPS_PROXY || process.env.RADIMOAGENT_HTTP_PROXY),
+    proxyOverrideConfigured: proxyConfigured(runtimeProxyOverride) || Boolean(process.env.RADIMOAGENT_HTTPS_PROXY || process.env.RADIMOAGENT_HTTP_PROXY),
     windowsProxy: await windowsProxyDiagnostics(),
     authEndpoint: await probeAuthEndpoint(),
     runtime: {
@@ -929,7 +951,7 @@ registerIpcHandler("agent:test-connection", async () => {
     return {
       ...result,
       proxyRules: await session.defaultSession.resolveProxy(result.endpoint || "https://api.openai.com/").catch((error) => `ERROR: ${error.message}`),
-      proxyOverrideConfigured: Boolean(runtimeProxyOverride || process.env.RADIMOAGENT_HTTPS_PROXY || process.env.RADIMOAGENT_HTTP_PROXY),
+      proxyOverrideConfigured: proxyConfigured(runtimeProxyOverride) || Boolean(process.env.RADIMOAGENT_HTTPS_PROXY || process.env.RADIMOAGENT_HTTP_PROXY),
     };
   }
   const proxyRules = await session.defaultSession.resolveProxy("https://auth.openai.com/").catch((error) => `ERROR: ${error.message}`);
@@ -937,7 +959,7 @@ registerIpcHandler("agent:test-connection", async () => {
     proxyRules,
     proxyEndpoint: proxyEndpointFromRules(proxyRules),
     authEndpoint: await probeAuthEndpoint(),
-    proxyOverrideConfigured: Boolean(runtimeProxyOverride || process.env.RADIMOAGENT_HTTPS_PROXY || process.env.RADIMOAGENT_HTTP_PROXY),
+    proxyOverrideConfigured: proxyConfigured(runtimeProxyOverride) || Boolean(process.env.RADIMOAGENT_HTTPS_PROXY || process.env.RADIMOAGENT_HTTP_PROXY),
     windowsProxy: await windowsProxyDiagnostics(),
   };
 });
@@ -1129,8 +1151,9 @@ registerIpcHandler("clipboard:write", (_event, text) => {
   clipboard.writeText(text);
   return true;
 });
+registerIpcHandler("clipboard:read", () => clipboard.readText());
 registerIpcHandler("field:read-focused", async (_event, options) => {
-  const result = await readFocusedField({ ...(options || {}), helperWindowHandle: helperNativeWindowHandle() });
+  const result = await readFocusedField({ ...(options || {}), helperWindowHandle: helperNativeWindowHandle(), helperProcessId: process.pid });
   log(result?.ok ? "INFO" : "WARN", "Focused field capture", {
     ok: Boolean(result?.ok),
     strategy: result?.strategy || null,
@@ -1144,6 +1167,7 @@ registerIpcHandler("field:focus-mapped", async (_event, payload) => {
     windowHandle: payload?.windowHandle,
     target: payload?.target,
     helperWindowHandle: helperNativeWindowHandle(),
+    helperProcessId: process.pid,
   });
   log(result?.ok ? "INFO" : "WARN", "Mapped field focus", {
     ok: Boolean(result?.ok),
@@ -1187,6 +1211,8 @@ registerIpcHandler("field:scan-window", async (_event, payload) => {
     windowHandle: payload?.windowHandle,
     target: payload?.target,
     helperWindowHandle: helperNativeWindowHandle(),
+    helperProcessId: process.pid,
+    accessMode: payload?.accessMode,
     profile,
     readValues,
   });
@@ -1386,6 +1412,13 @@ registerIpcHandler("agent:turn", async (_event, payload) => {
   } finally {
     if (imagePath) await releaseCapturePath(imagePath);
   }
+});
+
+app.on("login", (event, _webContents, _request, authInfo, callback) => {
+  const proxy = runtimeProxyOverride;
+  if (!authInfo?.isProxy || proxy?.mode !== "fixed_servers" || !proxy.username || !proxy.password) return;
+  event.preventDefault();
+  callback(proxy.username, proxy.password);
 });
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();

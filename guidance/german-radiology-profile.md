@@ -10,7 +10,8 @@ Latin policy: Preserve established anatomical and diagnostic Latin terms. Do not
 ## Style rules
 
 - Separate Fragestellung, Anforderung, Befund, and Beurteilung when those sections are present.
-- In Lektorat mode, repair spelling, grammar, punctuation, dictation artifacts, and local readability only.
+- In Lektorat mode, repair only relevant spelling, grammar, punctuation, clear dictation artifacts, and local readability. Preserve existing headings and OPB when present; do not add content or change medical meaning.
+- Put actual changes below the complete corrected text. List visible medical or logical issues only as notes; do not correct them in the text.
 - Preserve every measurement, unit, side, anatomical location, negation, uncertainty marker, temporal qualifier, and comparison date.
 - Do not add an unmentioned finding, diagnosis, recommendation, staging statement, or clinical history.
 - Keep uncertainty proportional: use formulations such as `vereinbar mit`, `am ehesten`, or `kann nicht ausgeschlossen werden` only when the source supports them.

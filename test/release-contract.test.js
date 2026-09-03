@@ -10,6 +10,7 @@ const { CODEX_RUNTIME, getCodexCandidates, resolveCodexBinaryInfo } = require(".
 const { normalizeEndpoint } = require("../src/agent-api-config");
 const { MAX_TRANSCRIPTION_PROMPT_CHARS, TRANSCRIPTION_PROMPT, normalizeTranscriptionPrompt } = require("../src/openai-audio");
 const { estimateCostEur, UsageBudget } = require("../src/usage-budget");
+const { normalizedProxyUrl, parseProxyInput, proxyEndpointFromRules } = require("../src/windows-proxy");
 const {
   buildFieldMapReport,
   defaultFieldMapperProfile,
@@ -68,6 +69,30 @@ test("remote API endpoints require HTTPS while local development endpoints may u
   assert.equal(normalizeEndpoint("openai", "http://127.0.0.1:4310"), "http://127.0.0.1:4310/v1");
   assert.throws(() => normalizeEndpoint("openai", "http://api.example.test"), /HTTPS/);
   assert.throws(() => normalizeEndpoint("azure", "http://tenant.openai.azure.com"), /HTTPS/);
+});
+
+test("proxy inputs accept PAC-style IP endpoints and preserve system proxy mode", () => {
+  assert.equal(normalizedProxyUrl("192.168.10.4:8080"), "http://192.168.10.4:8080");
+  assert.deepEqual(parseProxyInput("PROXY 192.168.10.4:8080"), {
+    mode: "fixed_servers",
+    proxyRules: "http://192.168.10.4:8080",
+    endpoint: "http://192.168.10.4:8080",
+    configured: true,
+  });
+  assert.deepEqual(parseProxyInput("PAC: https://proxy.example.test/config.pac"), {
+    mode: "pac_script",
+    pacScript: "https://proxy.example.test/config.pac",
+    configured: true,
+  });
+  assert.equal(proxyEndpointFromRules("DIRECT; HTTPS 192.168.10.4:8443; PROXY backup:8080"), "https://192.168.10.4:8443");
+  assert.deepEqual(parseProxyInput(""), { mode: "system", configured: false });
+});
+
+test("proxy application restores system mode instead of forcing a permanent direct connection", async () => {
+  const main = await fs.readFile(path.join(__dirname, "..", "src", "main.js"), "utf8");
+  assert.match(main, /setProxy\(\{ mode: "system" \}\)/);
+  assert.match(main, /mode: "pac_script"/);
+  assert.doesNotMatch(main, /proxyRules: runtimeProxyOverride \|\| "direct:\/\/"/);
 });
 
 test("unknown model prices are reported as unknown instead of borrowing another model's price", () => {
@@ -144,6 +169,13 @@ test("function prompts are user-editable and preserve reusable chat text", async
   assert.match(app, /miniChatPropose: \{ label: "Vorschlag ins Textfeld", task: "proposal"/);
   assert.match(app, /function recentDiscussionContext\(\)/);
   assert.match(app, /function parseChatResult\(raw\)/);
+  assert.match(app, /function normalizeActionResultText\(task, value\)/);
+  assert.match(app, /Beurteilung: \$\{withoutHeading\}/);
+  assert.match(app, /function assessmentReviewText\(source, addendum\)/);
+  assert.match(app, /function assessmentTransferPlan\(value, source = state\.lastSourceText, generatedAddendum = state\.lastResultInsertText\)/);
+  assert.match(app, /const automaticTransferText = appended \? generatedText : result/);
+  assert.match(app, /sourceText: state\.lastSourceText/);
+  assert.match(app, /reviewMode: "text"/);
   assert.match(renderer, /Vollständiger Funktionsprompt/);
   assert.match(renderer, /id="miniConfigPrompt"[^>]*maxlength="8000"/);
   assert.match(audio, /function normalizeTranscriptionPrompt\(value\)/);
@@ -187,6 +219,7 @@ test("field mapper is available in the integrated and standalone Windows builds"
   const main = await fs.readFile(path.join(__dirname, "..", "src", "main.js"), "utf8");
   const preload = await fs.readFile(path.join(__dirname, "..", "src", "preload.js"), "utf8");
   const bridge = await fs.readFile(path.join(__dirname, "..", "src", "windows-field-bridge.js"), "utf8");
+  const safeBridge = await fs.readFile(path.join(__dirname, "..", "src", "windows-safe-field-bridge.js"), "utf8");
   const app = await fs.readFile(path.join(__dirname, "..", "src", "renderer", "app.js"), "utf8");
   const renderer = await fs.readFile(path.join(__dirname, "..", "src", "renderer", "index.html"), "utf8");
   const styles = await fs.readFile(path.join(__dirname, "..", "src", "renderer", "styles.css"), "utf8");
@@ -196,8 +229,15 @@ test("field mapper is available in the integrated and standalone Windows builds"
   assert.match(main, /field-mapper:set-config/);
   assert.match(main, /field:focus-mapped/);
   assert.match(preload, /focusMappedField/);
+  assert.match(preload, /readClipboard/);
   assert.match(main, /field:scan-window/);
+  assert.match(main, /clipboard:read/);
+  assert.match(main, /getCursorScreenPoint/);
   assert.match(bridge, /RADIMO_FIELD_INSERT_AT_CURSOR/);
+  assert.match(safeBridge, /SAFE_READ_POWERSHELL/);
+  assert.match(safeBridge, /SAFE_WRITE_POWERSHELL/);
+  assert.doesNotMatch(safeBridge, /"-ExecutionPolicy"/);
+  assert.doesNotMatch(safeBridge, /Add-Type @'/);
   assert.match(bridge, /actualTextBase64/);
   assert.match(app, /insertAtCursor/);
   assert.match(app, /readFocusedField\(\{[\s\S]*?vollständige Feldinhalt/);
@@ -205,11 +245,18 @@ test("field mapper is available in the integrated and standalone Windows builds"
   assert.match(renderer, /fieldMapperInclude/);
   assert.match(renderer, /miniContextAutoSelect/);
   assert.match(renderer, /fieldMapperAutoTarget/);
+  assert.match(renderer, /fieldAccessMode/);
+  assert.match(renderer, /miniReviewNotes/);
+  assert.match(app, /transferNeedsReview/);
+  assert.match(app, /RIS-Übertragung wurde gesendet/);
+  assert.match(app, /OPB/);
   assert.match(styles, /target-drop-pulse/);
   assert.match(styles, /\.mini-target-cell\.is-auto-target/);
   assert.match(standalone, /RadIMO - ReportHalo Field Mapper/);
   assert.match(standalone, /field-mapper:scan/);
+  assert.doesNotMatch(standalone, /globalShortcut/);
   assert.match(config, /field-mapper-main\.js/);
+  assert.match(config, /windows-safe-field-bridge\.js/);
   assert.doesNotMatch(config, /codex|agent-backend|openai/i);
 });
 

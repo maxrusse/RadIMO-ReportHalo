@@ -36,7 +36,7 @@ const IMAGE_REVIEW_PROMPT = [
 const MODE_PROMPTS = {
   discussion: "DISCUSSION MODE: Chat only. Explain, ask clarifying questions, and discuss the supplied text. Never write to a foreign field.",
   report: "REPORT TEXT MODE: Improve only the supplied text. Preserve its order and facts; do not create missing report components.",
-  correction: "LEKTORAT MODE: Correct language and dictation artifacts only. Do not change medical meaning.",
+  correction: "LEKTORAT MODE: Correct only relevant spelling, grammar, punctuation, and clear dictation artifacts in the supplied text. Preserve existing headings and OPB when present. Do not add content or change medical meaning. List actual changes below the complete corrected text; list visible medical or logical issues only as notes and do not correct them.",
   differential: "DIFFERENTIAL MODE: Organize the response as supplied observations, leading differential considerations, discriminating features, missing data, and a short radiologist-review note. Do not present a differential as a confirmed diagnosis.",
   conclusion: "BEURTEILUNG MODE: Summarize only supplied findings. Keep uncertainty and missing information visible.",
   proposal: "PROPOSAL MODE: Prepare an editable draft for the requested report section. Never write to a foreign field; preserve uncertainty and flag missing or medically unclear points instead of guessing.",

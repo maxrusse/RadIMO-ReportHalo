@@ -12,6 +12,7 @@
     "src/field-mapper.js",
     "src/field-mapper.css",
     "src/windows-field-bridge.js",
+    "src/windows-safe-field-bridge.js",
     "src/windows-field-mapper.js",
     "package.json",
     "assets/radimoagent.ico",
