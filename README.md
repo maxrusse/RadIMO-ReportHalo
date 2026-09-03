@@ -1,51 +1,46 @@
 # RadIMO – ReportHalo
 
-RadIMO – ReportHalo is a Windows-only floating companion for radiology reporting. It stays beside the RIS, Word, or another editor and applies short, existing-text-first actions to text explicitly brought into the helper. The source application remains authoritative: the dependable DMO/RIS workflow is mark → Ctrl+C → import, then review and deliberate paste-back. Chat is the only verbose surface.
+RadIMO – ReportHalo is a small Windows companion for radiology reporting. It stays beside the RIS, Word, or editor where the report is written. The source application remains authoritative: bring text in deliberately, review the complete result, and paste it back deliberately. ReportHalo does not inspect or control foreign windows.
 
 <p align="center">
   <img src="docs/assets/reporthalo-orb-real.png" alt="RadIMO ReportHalo Orb" width="520">
 </p>
 
-*Current anonymized closed Orb renderer capture.*
+*Anonymized screenshot of the closed Orb.*
 
 ## Mission
 
-Keep the reporting workflow in the window where the report is already being written. ReportHalo provides a quiet 3×3 Orb for dictation, language cleanup, text preparation, assessment, and review. It is a small field tool, not a second desktop application and not a replacement for radiologist judgement.
+Keep report assistance close to the existing work surface without creating a second document application. The compact 3×3 Halo Cub provides dictation, language cleanup, text organization, assessment drafts, review, and chat. It is a drafting aid, not a medical device or a substitute for radiologist judgment.
 
-## Release shape
+## Current release shape
 
-| Area | Current direction |
-| --- | --- |
-| UI | Compact, always-on-top Halo Cub by default; closed window 180 × 190 px, with a larger floating Cub option |
-| Panels | Attached Text & Chat workspace, Review, Context, and Account panels; panels move with the Orb |
-| AI paths | Codex subscription through the official local runtime, or a smaller direct Responses API build for OpenAI/Azure OpenAI |
-| Packaging | Windows x64 portable build, per-user installer, API build, and a separate local Field Mapper utility; Codex is not embedded in the app |
-| Data boundary | API credentials stay in the Electron main process and use encrypted local storage; direct API conversations use local manual history |
-| Status | Unsigned release candidate; not a certified medical device and never the sole basis for a clinical decision |
+- Windows x64 portable Codex build, direct API build, and per-user installer
+- Codex subscription path through the official local Codex installation, or a smaller OpenAI/Azure OpenAI Responses API path
+- Compact 180 × 190 px Orb by default; an optional larger floating Cub is still the same window
+- Attached Text & Chat, Review, Context, and Account panels
+- No embedded Codex executable and no generic RIS field scanner
 
-## The 3×3 Halo Cub
+## The 3×3 controls
 
-The current German labels are the primary workflow; the icon and tooltip remain available when the Orb is closed.
-
-| Position | Function | What it does |
+| Position | Function | Purpose |
 | --- | --- | --- |
-| Top left | **Arbeitsfeld** | Imports explicitly copied text or accepts dropped text. In a source build, the separate experimental UIA test can lock an accessible external field; the small X releases it or clears the local source. |
-| Top middle | **Ausformulieren** | Makes existing report text clearer without adding unsupported facts. |
-| Top right | **Diktat** | Records a short dictation, transcribes it, and keeps the transcript pending until insertion is requested; the normal path copies it for deliberate `Ctrl+V` at the RIS cursor. |
-| Middle left | **Lektorat** | Repairs spelling, grammar, punctuation, dictation artifacts, and report style. Medical or logical concerns are reported in Chat, not silently changed. |
-| Center | **Agent-Kern** | Shows ready, working, or offline state and is the drag area for moving the Orb. Right-click opens settings, account, per-action prompts, and close. |
-| Middle right | **Einsetzen** | In the standard DMO/RIS workflow, copies the reviewed result for deliberate paste-back; an explicitly enabled UIA test may write only after target revalidation. |
-| Bottom left | **Strukturieren** | Organizes and completes supplied text while preserving measurements, negations, uncertainty, and other report facts. |
-| Bottom middle | **Beurteilung ergänzen** | Adds a draft assessment below the existing content; it does not replace the report. |
-| Bottom right | **Ergebnis prüfen** | Opens the complete editable result text first; an optional character-level before/after diff, notes, copy, save, and deliberate transfer are available there. |
+| Top left | **Text source** | Import copied DMO/RIS text or drop text here. |
+| Top middle | **Write clearly** | Rephrase existing text without adding facts. |
+| Top right | **Dictate** | Record, transcribe, and prepare a short dictation. |
+| Middle left | **Proofread** | Correct relevant spelling, grammar, punctuation, and dictation artifacts. |
+| Center | **Agent core** | Shows status and is the native drag handle. Right-click opens settings and close. |
+| Middle right | **Copy result** | Copy the reviewed result for deliberate paste-back. |
+| Bottom left | **Structure** | Reorder supplied text without inventing missing content. |
+| Bottom middle | **Add assessment** | Add a labelled `Beurteilung: …` draft below the supplied text. |
+| Bottom right | **Review result** | Edit the complete result, inspect a character-level diff, and copy or save it. |
 
-The right edge opens **Text & Chat** or **Kontext**. The lower edge opens Chat directly. Right-click the center to switch between the compact and larger floating Cub; attached panels keep their native sizes and do not cover the outer controls. Right-click any prompt-bearing button to open its full per-user prompt; the core menu exposes all prompt-bearing functions in one central settings panel. The current workfield is inserted through the `{{TEXT_BLOCK}}` template token, or appended as a delimited block when a custom prompt omits it. Captured external text is automatically discussion context; a proposal created by Chat starts in the local Text pane and never writes to the foreign field by itself.
+The right edge opens the shared Text & Chat or Context panel. The lower edge opens Chat. Function prompts can be edited per user from the core menu or a button's right-click menu. The `{{TEXT_BLOCK}}` token controls where the current text is placed in a custom prompt.
 
-For RIS context, the **Field Mapper** is a separate experimental UI Automation diagnostic, not a startup scanner. The normal Codex and API binaries exclude the UIA/PowerShell bridge; they use `mark in DMO/RIS → Ctrl+C → import clipboard`, so clicking the top-left cell does not launch foreign-window inspection. The standalone `ReportHalo-FieldMapper` build can be tested with `RADIMO_ENABLE_EXPERIMENTAL_UIA=1`; old preferences never enable it. It briefly hides its own window when no target is selected, lists accessible text controls, matches names, labels, help text, automation IDs, and parent container labels such as `Fragestellung`, `Labor`, `Befund`, or `Beurteilung` with editable wildcard rules, and applies exclusions such as patient identity fields before reading values. Class names alone are not treated as field labels. DMO and custom RIS controls can still expose no stable UIA name or readable value even when dictation works through the cursor. No native window injection or keystroke-replay compatibility path is bundled. Only verified UIA writes are reported as replacements; marked selections are always copied for manual paste instead of being treated as complete fields. If a target accepts a write but cannot be read back, the result stays uncommitted in ReportHalo and is copied for an explicit RIS paste/check. The diagnostic cannot see controls that expose no Windows accessibility tree and may need matching integrity levels when the RIS runs as administrator.
+## Text workflow and safety
 
-## Safety boundary
+For DMO/RIS, select the relevant text, press `Ctrl+C`, and choose **Zwischenablage übernehmen**. Text can also be dropped onto the top-left cell or edited in the local Text pane. Results are complete local drafts. Lektorat replaces the local text block; Beurteilung keeps the supplied text visible and creates a `Beurteilung: …` addendum. Changes, unclear points, and possible medical or logical issues stay outside the text and are shown below it and in Chat. No result is written into a foreign application or described as RIS-validated.
 
-Lektorat is conservative. ReportHalo preserves numbers, units, laterality, anatomy, negations, uncertainty, dates, temporal qualifiers, and recommendations. Non-chat actions return a compact result: only `text` can be transferred, while `changes`, unclear points, and possible logical or medical issues stay in Chat. Correction, writing, and structure show the complete replacement text in the local result field. Assessment shows the original text together with a `Beurteilung: …` addendum; transfer appends only that labelled addendum unless the user deliberately edits the original part of the full result. If a user explicitly asks for a reusable correction during Chat, the reply can include the same structured `text` block and metadata; discussion-only replies remain plain. Manual review can be required per action. The RIS or editor remains the authoritative record.
+The medical gate preserves numbers, units, laterality, anatomy, negations, uncertainty, dates, temporal qualifiers, and recommendations. Results must be checked against the original report and clinical context before use. ReportHalo is not a certified medical device.
 
 ## Run and build
 
@@ -54,10 +49,12 @@ npm ci
 npm run check
 npm start                 # Codex subscription path
 npm run start:api         # direct OpenAI/Azure OpenAI path
-npm run dist:field-mapper # standalone local RIS field inspector
+npm run release:gate
 ```
 
-For a release check, run `npm run release:gate`. The Codex build reuses an existing official installation or the pinned, checksum-verified installer helper included with the release. `npm run dist:api` creates the smaller API-only package without the Codex source or payload. Release binaries belong in [GitHub Releases](https://github.com/maxrusse/RadIMO-ReportHalo/releases), not in the source tree; the tag workflow publishes the portable Codex build, API-only build, ZIP, and installer as draft assets after verification.
+`npm run dist:codex` creates the portable Codex ZIP and executable. `npm run dist:api` creates the API-only executable. `npm run dist:installer` creates the per-user Windows installer. Release binaries are published as draft assets in [GitHub Releases](https://github.com/maxrusse/RadIMO-ReportHalo/releases); Codex is installed separately when needed through the checksum-verified release helper.
+
+API credentials stay in the Electron main process and use encrypted local storage. The API build supports OpenAI and Azure OpenAI, local conversation history, streaming responses, and provisional daily/monthly token limits. Azure pricing is not inferred as a billing amount.
 
 ## Links and license
 

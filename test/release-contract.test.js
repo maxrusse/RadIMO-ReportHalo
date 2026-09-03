@@ -11,16 +11,10 @@ const { normalizeEndpoint } = require("../src/agent-api-config");
 const { MAX_TRANSCRIPTION_PROMPT_CHARS, TRANSCRIPTION_PROMPT, normalizeTranscriptionPrompt } = require("../src/openai-audio");
 const { estimateCostEur, UsageBudget } = require("../src/usage-budget");
 const { normalizedProxyUrl, parseProxyInput, proxyEndpointFromRules } = require("../src/windows-proxy");
-const { blockedFieldAccessResult, experimentalUiaEnabled, unavailableFieldAccessResult } = require("../src/field-access-policy");
-const {
-  buildFieldMapReport,
-  defaultFieldMapperProfile,
-  matchContextFields,
-  parseRuleText,
-} = require("../src/windows-field-mapper");
 
 test("release metadata is pinned and excludes the Codex payload from the app build", () => {
   assert.equal(packageJson.name, "radimo-reporthalo-desktop");
+  assert.equal(packageJson.version, "0.2.18");
   assert.equal(packageJson.homepage, "https://maxrusse.github.io/RadIMO-ReportHalo/");
   assert.equal(packageJson.repository.url, "https://github.com/maxrusse/RadIMO-ReportHalo.git");
   assert.equal(packageJson.devDependencies.electron, "44.1.0");
@@ -118,31 +112,34 @@ test("usage budget exposes unknown pricing without blocking token accounting", a
   }
 });
 
-test("UIA field access is opt-in per process and clipboard mode has an explicit safe result", () => {
-  assert.equal(experimentalUiaEnabled({ RADIMO_ENABLE_EXPERIMENTAL_UIA: "1" }), true);
-  assert.equal(experimentalUiaEnabled({ RADIMO_ENABLE_EXPERIMENTAL_UIA: "0" }), false);
-  assert.deepEqual(blockedFieldAccessResult({ operation: "field-scan" }), {
-    ok: false,
-    verified: false,
-    error: "uia-disabled-by-policy",
-    accessibility: "uia-disabled",
-    strategy: "experimental-uia-disabled",
-  });
-  assert.deepEqual(blockedFieldAccessResult({ operation: "field-read", clipboard: true }), {
-    ok: false,
-    verified: false,
-    error: "field-read-clipboard-mode",
-    accessibility: "clipboard",
-    strategy: "clipboard-only",
-  });
-  assert.deepEqual(unavailableFieldAccessResult({ operation: "field-scan" }), {
-    ok: false,
-    verified: false,
-    error: "experimental-uia-bridge-unavailable",
-    accessibility: "uia-unavailable",
-    strategy: "experimental-uia-missing",
-    operation: "field-scan",
-  });
+test("foreign application access is limited to explicit clipboard and drop workflows", async () => {
+  const main = await fs.readFile(path.join(__dirname, "..", "src", "main.js"), "utf8");
+  const preload = await fs.readFile(path.join(__dirname, "..", "src", "preload.js"), "utf8");
+  const app = await fs.readFile(path.join(__dirname, "..", "src", "renderer", "app.js"), "utf8");
+  const renderer = await fs.readFile(path.join(__dirname, "..", "src", "renderer", "index.html"), "utf8");
+  assert.match(main, /clipboard:read/);
+  assert.match(main, /clipboard:write/);
+  assert.match(main, /fieldAccess: "clipboard"/);
+  assert.doesNotMatch(main, /field:read-focused|field:write-focused|field:scan-window|field-mapper/);
+  assert.doesNotMatch(preload, /readFocusedField|writeFocusedField|scanFieldWindow|FieldMapper/);
+  assert.match(app, /captureClipboardSource/);
+  assert.match(app, /writeClipboard/);
+  assert.doesNotMatch(app, /readFocusedField|writeFocusedField|scanFieldWindow|experimentalUia|fieldMapper/);
+  assert.match(renderer, /Zwischenablage übernehmen/);
+  assert.doesNotMatch(renderer, /UIA|Field Mapper|Feldinspektor|fieldMapper/i);
+  for (const relativePath of [
+    "src/field-access-policy.js",
+    "src/field-mapper-main.js",
+    "src/field-mapper-preload.js",
+    "src/field-mapper.html",
+    "src/field-mapper.js",
+    "src/field-mapper.css",
+    "src/windows-field-bridge.js",
+    "src/windows-safe-field-bridge.js",
+    "src/windows-field-mapper.js",
+    "src/clipboard-transfer.js",
+    "scripts/win-field-mapper-config.json",
+  ]) await assert.rejects(fs.access(path.join(__dirname, "..", relativePath)));
 });
 
 test("GitHub Pages product page is self-contained and brand-aligned", async () => {
@@ -204,9 +201,9 @@ test("function prompts are user-editable and preserve reusable chat text", async
   assert.match(app, /function assessmentTransferPlan\(value, source = state\.lastSourceText, generatedAddendum = state\.lastResultInsertText\)/);
   assert.match(app, /const automaticTransferText = appended \? generatedText : result/);
   assert.match(app, /sourceText: state\.lastSourceText/);
-  assert.match(app, /const clipboardFallback = fieldAccessMode\(\) === "clipboard"/);
   assert.match(app, /Diktat kopiert\. Im RIS\/DMO am Cursor mit Strg\+V einfügen/);
   assert.match(app, /Vollständiger Ergebnistext kopiert\. Im RIS\/DMO prüfen und mit Strg\+V einfügen/);
+  assert.match(app, /externalValidation: "not-available"/);
   assert.match(app, /clipboardPrepared/);
   assert.match(app, /vollständigen korrigierten Textblock/);
   assert.match(medicalGate, /every paragraph, heading, and unchanged passage/);
@@ -216,126 +213,6 @@ test("function prompts are user-editable and preserve reusable chat text", async
   assert.match(audio, /function normalizeTranscriptionPrompt\(value\)/);
   assert.equal(normalizeTranscriptionPrompt(""), TRANSCRIPTION_PROMPT);
   assert.equal(normalizeTranscriptionPrompt("x".repeat(MAX_TRANSCRIPTION_PROMPT_CHARS + 100)).length, MAX_TRANSCRIPTION_PROMPT_CHARS);
-});
-
-test("field mapper applies label rules before reading and keeps the context structured", () => {
-  const profile = parseRuleText([
-    "clinical_question = *frage*",
-    "report = *befund*",
-  ].join("\n"), "*patient*\n*geburtsdatum*\n*vorname*");
-  const fields = [
-    { name: "Edit1", labeledBy: "Fragestellung", value: "CT Thorax", supportsValue: true },
-    { name: "Edit2", label: "Befund", value: "Kein Erguss.", supportsValue: true },
-    { name: "Edit3", label: "Patient", value: "Max Mustermann", supportsValue: true },
-    { name: "Edit4", label: "Interne Notiz", value: "nicht zugeordnet", supportsValue: true },
-    { name: "EditorControl", className: "ReportEditor", value: "falscher Treffer", supportsValue: true },
-    { name: "Edit5", containerNames: ["Befund"], value: "Container label", supportsValue: true },
-    { name: "Edit6", label: "Vorname", value: "Max", supportsValue: true },
-  ];
-  const matched = matchContextFields(fields, profile);
-  assert.equal(matched[0].matches[0].key, "clinical_question");
-  assert.equal(matched[1].matches[0].key, "report");
-  assert.equal(matched[2].excluded, true);
-  assert.equal(matched[3].matched, false);
-  assert.equal(matched[4].matched, false);
-  assert.equal(matched[5].matches[0].key, "report");
-  assert.equal(matched[6].excluded, true);
-  const report = buildFieldMapReport({
-    ok: true,
-    processName: "ris.exe",
-    processId: 42,
-    windowHandle: "123",
-    fields,
-    diagnostics: { scanned: 4, textFields: 4, strategy: "uia-only", patterns: "ValuePattern, TextPattern" },
-  }, profile, { readValues: true });
-  assert.deepEqual(report.groups.map((group) => group.key), ["clinical_question", "report"]);
-  assert.match(report.prompt, /CT Thorax/);
-  assert.doesNotMatch(report.prompt, /Max Mustermann|nicht zugeordnet/);
-  assert.ok(report.fields.some((field) => field.excluded));
-  assert.equal(report.diagnostics.strategy, "uia-only");
-  assert.equal(report.diagnostics.patterns, "ValuePattern, TextPattern");
-  assert.equal(defaultFieldMapperProfile().schema, "reporthalo.field-map.v1");
-});
-
-test("field mapper is available in the integrated and standalone Windows builds", async () => {
-  const packageJsonText = await fs.readFile(path.join(__dirname, "..", "package.json"), "utf8");
-  const main = await fs.readFile(path.join(__dirname, "..", "src", "main.js"), "utf8");
-  const preload = await fs.readFile(path.join(__dirname, "..", "src", "preload.js"), "utf8");
-  const bridge = await fs.readFile(path.join(__dirname, "..", "src", "windows-field-bridge.js"), "utf8");
-  const safeBridge = await fs.readFile(path.join(__dirname, "..", "src", "windows-safe-field-bridge.js"), "utf8");
-  const accessPolicy = await fs.readFile(path.join(__dirname, "..", "src", "field-access-policy.js"), "utf8");
-  const app = await fs.readFile(path.join(__dirname, "..", "src", "renderer", "app.js"), "utf8");
-  const renderer = await fs.readFile(path.join(__dirname, "..", "src", "renderer", "index.html"), "utf8");
-  const styles = await fs.readFile(path.join(__dirname, "..", "src", "renderer", "styles.css"), "utf8");
-  const standalone = await fs.readFile(path.join(__dirname, "..", "src", "field-mapper-main.js"), "utf8");
-  const config = await fs.readFile(path.join(__dirname, "..", "scripts", "win-field-mapper-config.json"), "utf8");
-  const buildConfig = await fs.readFile(path.join(__dirname, "..", "package.json"), "utf8");
-  const apiConfig = await fs.readFile(path.join(__dirname, "..", "scripts", "win-api-config.json"), "utf8");
-  const installerConfig = await fs.readFile(path.join(__dirname, "..", "scripts", "win-installer-config.json"), "utf8");
-  assert.match(packageJsonText, /dist:field-mapper/);
-  assert.match(main, /field-mapper:set-config/);
-  assert.match(main, /field:focus-mapped/);
-  assert.match(preload, /focusMappedField/);
-  assert.match(preload, /readClipboard/);
-  assert.match(main, /field:scan-window/);
-  assert.match(main, /loadExperimentalWindowsFieldBridge/);
-  assert.doesNotMatch(main, /require\("\.\/windows-field-bridge"\)/);
-  assert.match(main, /Focused field capture blocked by policy/);
-  assert.match(main, /Focused field write blocked by policy/);
-  assert.match(main, /const accessMode = payload\?\.accessMode \|\| payload\?\.target\?\.accessMode/);
-  assert.match(main, /clipboard:read/);
-  assert.match(main, /getCursorScreenPoint/);
-  assert.match(main, /withHelperTemporarilyHidden/);
-  assert.doesNotMatch(bridge, /user32|ExecutionPolicy|SendKeys|Add-Type/i);
-  assert.match(bridge, /field-access-policy/);
-  assert.match(accessPolicy, /uia-disabled-by-policy/);
-  assert.match(bridge, /mode !== "uia"/);
-  assert.match(safeBridge, /SAFE_READ_POWERSHELL/);
-  assert.match(safeBridge, /SAFE_WRITE_POWERSHELL/);
-  assert.match(safeBridge, /List\[System\.Object\]/);
-  assert.match(safeBridge, /\.ToArray\(\)/);
-  assert.match(safeBridge, /Nearby-Label/);
-  assert.match(safeBridge, /Container-Names/);
-  assert.match(safeBridge, /containerNames/);
-  assert.match(safeBridge, /\$fieldLike = \$info\.controlType -match/);
-  assert.match(safeBridge, /RADIMO_FIELD_POINT_SCALE/);
-  assert.match(safeBridge, /RADIMO_FIELD_SCAN_PROCESS/);
-  assert.doesNotMatch(safeBridge, /LegacyIAccessiblePattern/);
-  assert.doesNotMatch(safeBridge, /"-ExecutionPolicy"/);
-  assert.doesNotMatch(safeBridge, /Add-Type @'/);
-  assert.match(bridge, /writeSafeFocusedField/);
-  assert.match(app, /insertAtCursor/);
-  assert.match(app, /readFocusedField\(\{[\s\S]*?vollständige Feldinhalt/);
-  assert.match(renderer, /scanFieldMapper/);
-  assert.match(renderer, /fieldMapperInclude/);
-  assert.match(renderer, /miniContextAutoSelect/);
-  assert.match(renderer, /fieldMapperAutoTarget/);
-  assert.match(renderer, /fieldAccessMode/);
-  assert.match(renderer, /miniReviewNotes/);
-  assert.match(app, /transferNeedsReview/);
-  assert.match(app, /RIS-Übertragung wurde gesendet/);
-  assert.match(app, /Zwischenablage-Modus aktiv\. Keine UIA-Diagnose gestartet/);
-  assert.match(app, /experimentalUia/);
-  assert.match(app, /selectionOnly/);
-  assert.match(app, /function likelyCompleteCorrection\(source, result\)/);
-  assert.match(app, /const incompleteCorrection = task === "correction"/);
-  assert.match(safeBridge, /selection-write-requires-manual-paste/);
-  assert.match(app, /OPB/);
-  assert.match(styles, /target-drop-pulse/);
-  assert.match(styles, /\.mini-target-cell\.is-auto-target/);
-  assert.match(standalone, /RadIMO - ReportHalo Field Mapper/);
-  assert.match(standalone, /field-mapper:scan/);
-  assert.match(standalone, /helperProcessId: process\.pid/);
-  assert.doesNotMatch(standalone, /globalShortcut/);
-  assert.match(config, /field-mapper-main\.js/);
-  assert.match(config, /field-access-policy\.js/);
-  assert.match(config, /windows-safe-field-bridge\.js/);
-  assert.doesNotMatch(config, /codex|agent-backend|openai/i);
-  for (const productionConfig of [buildConfig, apiConfig, installerConfig]) {
-    assert.match(productionConfig, /!src\/windows-field-bridge\.js/);
-    assert.match(productionConfig, /!src\/windows-safe-field-bridge\.js/);
-    assert.match(productionConfig, /!src\/field-mapper-main\.js/);
-  }
 });
 
 test("GitHub Pages deployment uses the docs site without a build-time dependency", async () => {

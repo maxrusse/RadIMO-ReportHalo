@@ -27,8 +27,6 @@ jobs:
         run: npm run dist:codex
       - name: Build direct API client
         run: npm run dist:api
-      - name: Build standalone Field Mapper
-        run: npm run dist:field-mapper
       - name: Build Windows installer
         run: npm run dist:installer
       - name: Verify release artifacts
@@ -46,7 +44,6 @@ jobs:
             "dist/RadIMO-ReportHalo-$version-win-x64.exe",
             "dist/RadIMO-ReportHalo-$version-win-x64.zip",
             "dist-api/RadIMO-ReportHalo-$version-win-x64-api.exe",
-            "dist-field-mapper/RadIMO-ReportHalo-FieldMapper-$version-win-x64.exe",
             "dist-installer/RadIMO-ReportHalo-$version-win-x64-setup.exe"
           )
           & gh release create $env:GITHUB_REF_NAME @assets --draft --verify-tag --generate-notes --title "RadIMO - ReportHalo $version"

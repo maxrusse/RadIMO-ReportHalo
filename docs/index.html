@@ -28,7 +28,7 @@
         <div class="hero-copy">
           <p class="eyebrow">Windows companion for radiology reporting</p>
           <h1>Small controls for the report field you already use.</h1>
-          <p class="lead">ReportHalo stays beside the active RIS, Word, or editor field. It works with an explicit clipboard workflow across DMO/RIS installations; an experimental UIA diagnostic can be enabled separately when an installation exposes accessible fields.</p>
+          <p class="lead">ReportHalo stays beside the active RIS, Word, or editor field. It uses an explicit clipboard and drag-and-drop workflow across DMO/RIS installations; it does not inspect or control another process.</p>
           <div class="actions">
             <a class="button primary" href="#controls">See the controls</a>
             <a class="button ghost" href="https://github.com/maxrusse/RadIMO-ReportHalo">Open the repository</a>
@@ -73,12 +73,12 @@
           <p class="section-lead">The labels below describe the current German-language workflow. The closed Orb exposes the same functions through icons, tooltips, and accessible names.</p>
         </div>
         <div class="control-grid">
-          <article><span class="control-position">Top left</span><h3>Text source</h3><p>Import copied DMO/RIS text or drop text here as a local source. Results are copied for deliberate paste-back. The separate Field Mapper is an experimental UIA diagnostic, not part of the normal build.</p></article>
+          <article><span class="control-position">Top left</span><h3>Text source</h3><p>Import copied DMO/RIS text or drop text here as a local source. Results are copied for deliberate paste-back.</p></article>
           <article><span class="control-position">Top middle</span><h3>Write clearly</h3><p>Rephrase existing report text for clarity without adding unsupported facts.</p></article>
           <article><span class="control-position">Top right</span><h3>Dictate</h3><p>Record a short segment, transcribe it, and keep the transcript pending until insertion is requested.</p></article>
           <article><span class="control-position">Middle left</span><h3>Proofread</h3><p>Correct spelling, grammar, punctuation, dictation artifacts, and report style. Medical or logical concerns are not silently changed.</p></article>
           <article class="control-core"><span class="control-position">Center</span><h3>Agent core</h3><p>Drag the Orb here. The core shows ready, working, or offline state. Right-click opens settings, account, prompts, and close.</p></article>
-          <article><span class="control-position">Middle right</span><h3>Copy result</h3><p>Copy a reviewed result so it can be pasted deliberately at the RIS or editor cursor. Direct UIA replacement is limited to a separate developer diagnostic.</p></article>
+          <article><span class="control-position">Middle right</span><h3>Copy result</h3><p>Copy a reviewed result so it can be pasted deliberately at the RIS or editor cursor. ReportHalo does not claim to validate the paste in the target application.</p></article>
           <article><span class="control-position">Bottom left</span><h3>Structure</h3><p>Organize supplied text while preserving measurements, negations, uncertainty, and other report facts.</p></article>
           <article><span class="control-position">Bottom middle</span><h3>Add assessment</h3><p>Add a draft assessment below the existing content. This action does not replace the report.</p></article>
           <article><span class="control-position">Bottom right</span><h3>Review result</h3><p>Open the complete editable result first, or switch to a character-level before/after diff. Copy, save, revise, or deliberately transfer the result.</p></article>

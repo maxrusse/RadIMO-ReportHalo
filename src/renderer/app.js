@@ -6,16 +6,6 @@ const state = {
   apiConfigLocks: { provider: false, authMode: false, endpoint: false, model: false, audioDeployment: false },
   loggedIn: false,
   contextReport: null,
-  fieldMapperProfile: null,
-  fieldMapReport: null,
-  fieldMapSelectedKeys: new Set(),
-  fieldMapperAutoTarget: false,
-  fieldMapperAutoSelection: null,
-  fieldMapperAutoSelecting: false,
-  fieldMapperBusy: false,
-  fieldAccessMode: "clipboard",
-  focusedTarget: null,
-  fieldLocked: false,
   helperFieldType: "befund",
   helperSourceText: "",
   pendingDictationText: "",
@@ -36,12 +26,9 @@ const state = {
   lastResultTask: "",
   lastAgentMeta: { changes: [], unclear: [], logicIssues: [], medicalIssues: [] },
   lastResultApplied: false,
-  lastResultTarget: null,
-  lastChatResultTarget: null,
   transferNeedsReview: null,
   manualReviewPending: false,
   transferInFlight: false,
-  pendingDictationTarget: null,
   chatMessages: [],
   chatAssistantNode: null,
   chatUnread: false,
@@ -56,7 +43,6 @@ const state = {
   panelReturnFocus: null,
   contextMenuReturnFocus: null,
   connectionOnline: false,
-  experimentalUia: false,
   cubeMode: "compact",
 };
 
@@ -82,37 +68,10 @@ const MAX_ACTION_PROMPT_CHARS = 8_000;
 const TEXT_BLOCK_TOKEN = "{{TEXT_BLOCK}}";
 const ACTION_SETTINGS_STORAGE_KEY = "radimoagent.action-settings.v2";
 const CUBE_MODE_STORAGE_KEY = "radimoagent.cube-size.v1";
-const FIELD_MAPPER_PREFERENCE_STORAGE_KEY = "radimoagent.field-mapper-preferences.v1";
-const FIELD_ACCESS_STORAGE_KEY = "radimoagent.field-access.v1";
-const FIELD_MAPPER_DEFAULT_INCLUDE = [
-  "clinical_question = *fragestellung* | *frage* | *anforderung*",
-  "lab = *labor*",
-  "contrast = *kontrast*",
-  "report = *befund*",
-  "summary = *beurteilung* | *impression*",
-  "clinical_info = *klinische angabe* | *anamnese* | *indikation*",
-  "referrer_notes = *zuweis* | *überweisung* | *einweiser* | *referenten*",
-].join("\n");
-const FIELD_MAPPER_DEFAULT_EXCLUDE = [
-  "*patient*",
-  "*geburtsdatum*",
-  "*geburt*",
-  "*adresse*",
-  "*telefon*",
-  "*versicherung*",
-  "*fallnummer*",
-  "*patienten-id*",
-  "*patientennummer*",
-  "*versichertennummer*",
-  "*patientenname*",
-  "*patname*",
-  "*nachname*",
-  "*vorname*",
-].join("\n");
 const ACTION_PROMPT_DEFAULTS = {
-  write: `Formuliere nur den vorhandenen Text klarer. Keine neuen Informationen und keine inhaltlichen Ergänzungen. Gib in text den vollständigen Textblock zurück; er ist für die Ersetzung des aktiven Feldes bestimmt.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
+  write: `Formuliere nur den vorhandenen Text klarer. Keine neuen Informationen und keine inhaltlichen Ergänzungen. Gib in text den vollständigen lokalen Textblock zurück. Der Entwurf wird erst nach Prüfung bewusst in die Zielsoftware eingefügt.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
   correction: `Medizinisches Lektorat. Korrigiere und ersetze ausschließlich relevante Rechtschreib-, Grammatik-, Interpunktions- und erkennbare Diktatfehler im vorhandenen Text. Überschriften und OPB, sofern vorhanden, unverändert belassen. Keine neuen Inhalte, keine stilistische Umdeutung und keine Bedeutungsänderung. Medizinische oder logische Auffälligkeiten ausschließlich unter dem Text als Hinweise nennen; nicht korrigieren. Gib in text ausschließlich den vollständigen korrigierten Textblock zurück: jeden Absatz, jede Überschrift und alle unveränderten Stellen mit ausgeben, niemals nur Änderungen, Ausschnitte, eine Zusammenfassung oder Auslassungspunkte. Wenn keine Korrektur nötig ist, gib den vollständigen Originaltext unverändert zurück und setze changes auf []. Keine Zusatzformatierung und keine Hinweise innerhalb von text; Änderungen und Hinweise stehen nur in den Metadaten.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
-  structure: `Ordne nur den vorhandenen Text besser. Nichts ergänzen und keine fehlenden Bausteine erfinden. Gib in text den vollständigen neu geordneten Textblock zurück; er ist für die Ersetzung des aktiven Feldes bestimmt.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
+  structure: `Ordne nur den vorhandenen Text besser. Nichts ergänzen und keine fehlenden Bausteine erfinden. Gib in text den vollständigen lokalen Textblock zurück. Der Entwurf wird erst nach Prüfung bewusst in die Zielsoftware eingefügt.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
   assessment: `Fasse nur die vorhandenen Aussagen knapp als Beurteilung. Unsicherheiten und Lücken bleiben sichtbar. Gib in text nur den ergänzenden Inhalt ohne Überschrift zurück; ReportHalo setzt beim Übernehmen die klare Kennzeichnung "Beurteilung: " davor und hängt ihn unterhalb des vorhandenen Textes an.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
   discussion: `Chat: Antworte knapp in 1–4 kurzen Absätzen oder höchstens fünf Stichpunkten. Erkläre, frage nach und diskutiere nur anhand des vorhandenen Textes. Du schreibst nie in ein externes Feld. Wenn der Nutzer ausdrücklich einen korrigierten, umformulierten oder wiederverwendbaren Text verlangt, gib ein JSON-Objekt mit answer, text, changes, unclear, logicIssues und medicalIssues zurück; text ist dann der vollständige Textblock zur späteren Übernahme. Bei reiner Diskussion antworte als normalen kurzen Text.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
   proposal: `Vorschlag: Erstelle aus dem Arbeitsfeld und der Anweisung einen kurzen, bearbeitbaren Textentwurf. Der Entwurf darf die gewünschte Zielsektion (zum Beispiel Befund oder Beurteilung) abbilden, aber keine neuen medizinischen Fakten ergänzen. Gib in text den vollständigen lokalen Entwurf zurück. Schreibe nie in ein externes Feld.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
@@ -121,19 +80,9 @@ const ACTION_PROMPT_DEFAULTS = {
 const ACTION_SETTING_DEFAULTS = Object.fromEntries(Object.keys(ACTION_PROMPT_DEFAULTS).map((task) => [task, {
   visible: true,
   prompt: "",
-  manualReview: false,
+  manualReview: task === "correction",
 }]));
 
-const FIELD_ACCESS_MODES = {
-  clipboard: {
-    label: "Zwischenablage · DMO/RIS",
-    description: "Im DMO/RIS Text markieren, Strg+C drücken und anschließend hier übernehmen. Ergebnisse werden kopiert und im Zielprogramm bewusst mit Strg+V eingefügt.",
-  },
-  uia: {
-    label: "UIA-Feldzugriff · experimentell",
-    description: "Nur auf ausdrücklichen Klick: der Helper wird kurz ausgeblendet und liest ausschließlich ValuePattern/TextPattern des fokussierten UIA-Elements. Nicht jedes DMO-/RIS-Feld stellt diesen Zugriff bereit.",
-  },
-};
 const panelLayoutEpoch = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 let panelLayoutRequest = 0;
 let chatAssistantRenderFrame = 0;
@@ -194,7 +143,7 @@ function loadActionSettings() {
     return [task, {
       visible: value.visible !== false,
       prompt: typeof value.prompt === "string" ? value.prompt.trim().slice(0, MAX_ACTION_PROMPT_CHARS) : defaults.prompt,
-      manualReview: value.manualReview === true,
+      manualReview: value.manualReview === true || (value.manualReview === undefined && defaults.manualReview === true),
     }];
   }));
 }
@@ -436,28 +385,22 @@ function showMiniContextMenu(event, targetId = "miniCore") {
   const run = $("miniContextRun");
   if (run) {
     run.classList.toggle("hidden", !definition.run);
-    run.textContent = targetId === "miniTargetCell" && !usesExperimentalFieldAccess()
+    run.textContent = targetId === "miniTargetCell"
       ? "Zwischenablage übernehmen"
       : definition.task ? "Ausführen" : definition.label + " öffnen";
   }
   const targetMenu = targetId === "miniTargetCell";
   const selection = $("miniContextSelection");
-  if (selection) selection.classList.toggle("hidden", !targetMenu || !usesExperimentalFieldAccess());
+  if (selection) selection.classList.toggle("hidden", true);
   const copy = $("miniContextCopy");
   if (copy) copy.classList.toggle("hidden", !targetMenu || !Boolean(currentHelperText() || reviewText()));
   const clipboard = $("miniContextClipboard");
   if (clipboard) clipboard.classList.toggle("hidden", !targetMenu);
   const reset = $("miniContextReset");
   if (reset) {
-    const canReset = hasLockedTarget() || Boolean(currentHelperText() || state.lastAgentResult.trim() || $("miniReviewText")?.value.trim());
+    const canReset = Boolean(currentHelperText() || state.lastAgentResult.trim() || $("miniReviewText")?.value.trim());
     reset.classList.toggle("hidden", !targetMenu || !canReset);
-    reset.textContent = hasLockedTarget() ? "Arbeitsfeld lösen" : "Textquelle leeren";
-  }
-  const autoSelect = $("miniContextAutoSelect");
-  if (autoSelect) {
-    autoSelect.classList.toggle("hidden", !targetMenu || !usesExperimentalFieldAccess());
-    autoSelect.textContent = `${fieldMapperTargetLabel()} automatisch wählen`;
-    autoSelect.title = "Eine eindeutig passende, konfigurierte Textfeldregel als Ziel verwenden";
+    reset.textContent = "Textquelle leeren";
   }
   const configure = $("miniContextConfigure");
   const canConfigure = definition.kind === "core" || Boolean(definition.configurable);
@@ -475,8 +418,6 @@ function showMiniContextMenu(event, targetId = "miniCore") {
   if (quit) quit.classList.toggle("hidden", definition.kind !== "core");
   const cubeSize = $("miniContextCubeSize");
   if (cubeSize) cubeSize.classList.toggle("hidden", definition.kind !== "core");
-  const fieldMapper = $("miniContextFieldMapper");
-  if (fieldMapper) fieldMapper.classList.toggle("hidden", !usesExperimentalFieldAccess());
   syncCubeModeControl();
   menu.classList.remove("hidden");
   const core = $("miniCore");
@@ -490,7 +431,7 @@ function showMiniContextMenu(event, targetId = "miniCore") {
   const placed = menu.getBoundingClientRect();
   menu.style.left = String(Math.max(8, Math.min(x, window.innerWidth - placed.width - 8))) + "px";
   menu.style.top = String(Math.max(8, Math.min(y, window.innerHeight - placed.height - 8))) + "px";
-  [run, selection, copy, clipboard, reset, autoSelect, configure, cubeSize, $("miniContextFieldMapper"), $("miniContextSettings"), $("miniContextClose"), quit]
+  [run, selection, copy, clipboard, reset, configure, cubeSize, $("miniContextSettings"), $("miniContextClose"), quit]
     .find((node) => node && !node.classList.contains("hidden"))?.focus();
 }
 
@@ -549,88 +490,19 @@ function setHelperFieldType(value) {
   state.helperFieldType = HELPER_FIELD_LABELS[value] ? value : "befund";
 }
 
-function inferHelperFieldType(target) {
-  const value = `${target?.title || ""} ${target?.controlType || ""}`.toLocaleLowerCase("de-DE");
-  if (/beurteil|zusammenfass|impression|conclusion|assessment/.test(value)) return "beurteilung";
-  if (/frage|question/.test(value)) return "fragestellung";
-  if (/anforder|request|indication/.test(value)) return "anforderung";
-  if (/befund|finding|report/.test(value)) return "befund";
-  return "befund";
-}
-
 function currentHelperText() {
   return String(state.helperSourceText || state.pendingDictationText || "").trim();
 }
 
-function normalizeFieldAccessMode(value) {
-  return value === "uia" && state.experimentalUia ? "uia" : "clipboard";
-}
-
-function fieldAccessMode() {
-  return normalizeFieldAccessMode(state.fieldAccessMode);
-}
-
-function fieldAccessDescription(mode = fieldAccessMode()) {
-  return FIELD_ACCESS_MODES[normalizeFieldAccessMode(mode)]?.description || FIELD_ACCESS_MODES.clipboard.description;
-}
-
-function usesExperimentalFieldAccess() {
-  return state.experimentalUia && fieldAccessMode() === "uia";
-}
-
-function fieldCaptureLabel() {
-  return usesExperimentalFieldAccess() ? "Externes Arbeitsfeld aktivieren" : "Text aus der Zwischenablage übernehmen";
-}
-
 function updateFieldAccessUi() {
-  const fieldButton = $("miniCaptureFromField");
-  if (fieldButton) {
-    fieldButton.classList.toggle("hidden", !state.experimentalUia);
-    fieldButton.disabled = !state.experimentalUia;
-    fieldButton.textContent = "UIA-Feld aktivieren";
-    fieldButton.title = "Nur im ausdrücklich gestarteten UIA-Entwicklertest verwenden";
-  }
-  document.querySelector(".field-mapper-details")?.classList.toggle("hidden", !state.experimentalUia);
   const workflowNote = $("fieldAccessWorkflowNote");
-  if (workflowNote) workflowNote.textContent = usesExperimentalFieldAccess()
-    ? "UIA ist nur für einen ausdrücklich gestarteten Entwicklertest aktiv. DMO-/RIS-Felder können trotz funktionierendem Diktat keinen lesbaren UIA-Text bereitstellen."
-    : "Der sichere Standardweg startet keine Fremdfenster-Automation. DMO-Diktat- und unbekannte Felder bleiben im DMO-Workflow; ReportHalo übernimmt Text ausdrücklich aus der Zwischenablage.";
+  if (workflowNote) workflowNote.textContent = "ReportHalo liest keine Fremdfenster aus. DMO-/RIS-Text bitte markieren, kopieren und hier ausdrücklich übernehmen; Ergebnisse werden bewusst zurückkopiert.";
   const clipboardButton = $("miniClipboardCapture");
   if (clipboardButton) {
     clipboardButton.textContent = "Zwischenablage übernehmen";
     clipboardButton.title = "Markierten DMO-/RIS-Text aus der Zwischenablage übernehmen";
   }
   renderMiniTarget();
-}
-
-function releaseUiaTargetForClipboard() {
-  state.fieldAccessMode = "clipboard";
-  state.focusedTarget = null;
-  state.fieldLocked = false;
-  state.transferNeedsReview = null;
-  state.lastResultApplied = false;
-  state.fieldMapperAutoSelection = null;
-  state.fieldMapperAutoTarget = false;
-  saveFieldMapperPreferences();
-  renderFieldMapperReport(null);
-  void window.radimoAgent.patchWorkflow({ phase: "idle", target: "text", targetIdentity: null });
-  syncDiscussionScope();
-}
-
-function hasLockedTarget() {
-  return Boolean(state.fieldLocked && state.focusedTarget?.windowHandle);
-}
-
-function sameTargetIdentity(left, right) {
-  if (!left?.windowHandle || !right?.windowHandle || String(left.windowHandle) !== String(right.windowHandle)) return false;
-  for (const key of ["processId", "controlWindowHandle", "automationId", "controlType", "runtimeId"]) {
-    if (left[key] && right[key] && String(left[key]) !== String(right[key])) return false;
-  }
-  return true;
-}
-
-function targetSnapshot() {
-  return hasLockedTarget() ? { ...state.focusedTarget } : null;
 }
 
 function setMiniWorkingState(working) {
@@ -850,36 +722,33 @@ function handleDialogKeydown(event) {
 function renderMiniTarget() {
   const cell = $("miniTargetCell");
   if (!cell) return;
-  const hasTarget = hasLockedTarget();
   const hasText = Boolean(state.helperSourceText || state.pendingDictationText);
   const editor = $("miniEditorText");
   if (editor && state.editorMode === "source") {
     const source = currentHelperText();
     if (editor.value !== source) editor.value = source;
   }
-  cell.classList.toggle("is-ready", hasTarget);
-  cell.classList.toggle("is-auto-target", hasTarget && Boolean(state.focusedTarget?.fieldMapperKey));
-  cell.classList.toggle("has-text", !hasTarget && hasText);
-  cell.classList.toggle("is-empty", !hasTarget && !hasText);
-  const uia = usesExperimentalFieldAccess();
-  cell.setAttribute("aria-label", hasTarget ? `Externes Feld aktiv: ${helperFieldLabel()}` : hasText ? "Textquelle bereit" : uia ? "Externes Arbeitsfeld oder Textquelle" : "Textquelle aus Zwischenablage oder Drag-and-drop");
-  cell.title = hasTarget ? `${state.focusedTarget?.fieldMapperLabel ? `${state.focusedTarget.fieldMapperLabel} · ` : ""}Externes Feld aktiv · Rechtsklick für Auto-Ziel · X löst das Zielfeld` : hasText ? "Textquelle bereit · X leert den Text" : uia ? "Externes Arbeitsfeld aktivieren oder Text hierher ziehen · Rechtsklick für Auto-Ziel" : "Text aus der Zwischenablage übernehmen oder hierher ziehen";
+  cell.classList.toggle("is-ready", hasText);
+  cell.classList.toggle("has-text", hasText);
+  cell.classList.toggle("is-empty", !hasText);
+  cell.setAttribute("aria-label", hasText ? "Textquelle bereit" : "Textquelle aus Zwischenablage oder Drag-and-drop");
+  cell.title = hasText ? "Textquelle bereit · X leert den Text" : "Text aus der Zwischenablage übernehmen oder hierher ziehen";
   const targetIcon = $("miniTargetIcon");
-  if (targetIcon) targetIcon.setAttribute("href", hasTarget ? "#icon-lock" : hasText ? "#icon-edit" : "#icon-target");
+  if (targetIcon) targetIcon.setAttribute("href", hasText ? "#icon-edit" : "#icon-target");
   const capture = $("miniCapture");
-  capture?.classList.toggle("is-active", hasTarget);
-  capture?.setAttribute("aria-label", hasTarget ? `Arbeitsfeld erneut lesen: ${helperFieldLabel()}` : hasText ? uia ? "Textquelle durch externes Arbeitsfeld ersetzen" : "Zwischenablage erneut übernehmen" : fieldCaptureLabel());
-  capture?.setAttribute("title", hasTarget ? "Arbeitsfeld erneut lesen" : hasText ? uia ? "Externes Arbeitsfeld aktivieren" : "Zwischenablage erneut übernehmen" : fieldCaptureLabel());
-  text("miniTargetCellStatus", hasTarget ? `Externes Feld aktiv: ${helperFieldLabel()}` : hasText ? "Textquelle bereit" : uia ? "Feld wählen" : "Zwischenablage übernehmen");
+  capture?.classList.toggle("is-active", hasText);
+  capture?.setAttribute("aria-label", hasText ? "Zwischenablage erneut übernehmen" : "Text aus der Zwischenablage übernehmen");
+  capture?.setAttribute("title", hasText ? "Zwischenablage erneut übernehmen" : "Text aus der Zwischenablage übernehmen");
+  text("miniTargetCellStatus", hasText ? "Textquelle bereit" : "Zwischenablage übernehmen");
   const clear = $("miniTargetClear");
-  if (clear) clear.disabled = !hasTarget && !hasText;
-  if (clear) clear.title = hasTarget ? "Arbeitsfeld lösen" : "Textquelle leeren";
+  if (clear) clear.disabled = !hasText;
+  if (clear) clear.title = "Textquelle leeren";
   setMiniEditorAvailability();
 }
 
 function setMiniEditorAvailability() {
   const resultMode = state.editorMode === "result" && Boolean(state.lastAgentResult.trim() || $("miniEditorText")?.value.trim());
-  const sourceReadOnly = hasLockedTarget() && !resultMode;
+  const sourceReadOnly = false;
   const toggle = $("miniEditorToggle");
   if (toggle) {
     toggle.classList.remove("hidden");
@@ -897,13 +766,13 @@ function setMiniEditorAvailability() {
 
 function syncMiniEditorMode() {
   const resultMode = state.editorMode === "result";
-  const sourceReadOnly = hasLockedTarget() && !resultMode;
+  const sourceReadOnly = false;
   const use = $("miniEditorUse");
   const send = $("miniEditorSend");
   const editor = $("miniEditorText");
   text("miniEditorEyebrow", resultMode ? "MANUELL PRÜFEN" : sourceReadOnly ? "ARBEITSFELD" : "TEXTQUELLE");
-  text("miniEditorTitle", resultMode ? "Entwurf bearbeiten" : sourceReadOnly ? `${helperFieldLabel()} · Kontext` : "Textquelle");
-  text("miniEditorModeNote", resultMode ? "AI-Entwurf · nichts wird ins Zielfeld geschrieben, bevor du ihn prüfst." : sourceReadOnly ? "Automatisch aus dem aktiven Feld gelesen · wird nur als Chatkontext verwendet." : "Lokale Textquelle · wird nicht automatisch in ein externes Feld geschrieben.");
+  text("miniEditorTitle", resultMode ? "Entwurf bearbeiten" : "Textquelle");
+  text("miniEditorModeNote", resultMode ? "AI-Entwurf · nach Prüfung für DMO/RIS kopieren." : "Lokale Textquelle · wird nicht automatisch in ein externes Feld geschrieben.");
   if (editor) {
     editor.readOnly = sourceReadOnly;
     editor.setAttribute("aria-readonly", String(sourceReadOnly));
@@ -930,31 +799,27 @@ function setMiniInsertState() {
   const hasPending = Boolean(state.pendingDictationText.trim());
   const hasReview = Boolean($("miniReviewText")?.value.trim() || state.lastAgentResult.trim());
   const reviewTransfer = state.lastResultTask === "assessment" ? assessmentTransferPlan(reviewText()) : null;
-  const hasTarget = hasLockedTarget();
-  const readOnly = hasTarget && state.focusedTarget?.supportsWrite === false;
   const transferBlocked = Boolean(state.transferNeedsReview);
   const reviewInsertable = !reviewTransfer || Boolean(reviewTransfer.text);
-  const ready = hasTarget && !readOnly && !transferBlocked && reviewInsertable && !state.manualReviewPending && !state.transferInFlight && !state.activeTask && !state.lastResultApplied && (hasPending || hasReview);
+  const ready = !transferBlocked && reviewInsertable && !state.manualReviewPending && !state.transferInFlight && !state.activeTask && !state.lastResultApplied && (hasPending || hasReview);
   const review = $("miniReview");
   if (review) {
     review.classList.toggle("is-ready", hasReview);
-    review.title = state.manualReviewPending ? "Entwurf zuerst im Editor prüfen" : transferBlocked ? "Übertragung im RIS prüfen" : hasReview ? "Ergebnis prüfen" : "Ergebnis prüfen · noch kein Ergebnis";
+    review.title = state.manualReviewPending ? "Entwurf zuerst im Editor prüfen" : transferBlocked ? "Kopierstatus prüfen" : hasReview ? "Ergebnis prüfen" : "Ergebnis prüfen · noch kein Ergebnis";
     review.setAttribute("aria-label", review.title);
   }
-  const resultTargetChanged = Boolean(state.lastResultTarget?.windowHandle && (!hasTarget || !sameTargetIdentity(state.focusedTarget, state.lastResultTarget)));
-  const selectionTarget = hasTarget && state.focusedTarget?.selectionOnly === true;
-  const resultTransferLabel = selectionTarget ? "Markierte Auswahl wird nicht als Vollfeld überschrieben" : reviewTransfer?.fullReplacement ? "Vollständiger bearbeiteter Text wird ersetzt" : state.lastResultTask === "assessment" ? "Beurteilung wird ergänzt" : "Ergebnis ersetzt";
-  text("miniReviewTarget", resultTargetChanged ? "Zielfeld geändert · Ergebnis nicht automatisch übernehmen." : hasTarget ? `${resultTransferLabel} · Zielfeld: ${helperFieldLabel()}` : "Kein aktives Zielfeld · Ergebnis bleibt lokal.");
+  const resultTransferLabel = reviewTransfer?.fullReplacement ? "Vollständiger Text" : state.lastResultTask === "assessment" ? "Beurteilung als Ergänzung" : "Ergebnis";
+  text("miniReviewTarget", `${resultTransferLabel} bleibt lokal. Für DMO/RIS kopieren und dort bewusst mit Strg+V einfügen.`);
   const reviewInsert = $("miniReviewInsert");
-  const reviewReady = hasReview && reviewInsertable && hasTarget && !readOnly && !transferBlocked && !resultTargetChanged && !state.manualReviewPending && !state.transferInFlight && !state.activeTask && !state.lastResultApplied;
+  const reviewReady = hasReview && reviewInsertable && !transferBlocked && !state.manualReviewPending && !state.transferInFlight && !state.activeTask && !state.lastResultApplied;
   if (reviewInsert) {
     reviewInsert.disabled = !reviewReady;
-    reviewInsert.title = resultTargetChanged ? "Zielfeld geändert · Aktion erneut starten" : transferBlocked ? "Übertragung im RIS prüfen oder Zielfeld neu aktivieren" : readOnly ? "Zielfeld ist schreibgeschützt" : state.manualReviewPending ? "Zuerst den Entwurf im Editor prüfen" : selectionTarget ? "Ergebnis kopieren und an der markierten RIS-Auswahl einfügen" : "Geprüftes Ergebnis ins Zielfeld übernehmen";
+    reviewInsert.title = transferBlocked ? "Kopierstatus prüfen" : state.manualReviewPending ? "Zuerst den Entwurf im Editor prüfen" : "Geprüftes Ergebnis für DMO/RIS kopieren";
     reviewInsert.setAttribute("aria-label", reviewInsert.title);
   }
   button.disabled = !ready;
   button.classList.toggle("is-ready", ready);
-  button.title = transferBlocked ? "Übertragung im RIS prüfen oder Zielfeld neu aktivieren" : readOnly ? "Zielfeld ist schreibgeschützt" : state.manualReviewPending ? "Nach manueller Prüfung ins Zielfeld übernehmen" : selectionTarget ? "Ergebnis kopieren und an der markierten RIS-Auswahl einfügen" : hasPending ? "Diktat ins Arbeitsfeld einsetzen" : state.lastResultTask === "assessment" ? "Beurteilung im Arbeitsfeld ergänzen" : "Geprüftes Ergebnis im Arbeitsfeld anwenden";
+  button.title = transferBlocked ? "Kopierstatus prüfen" : state.manualReviewPending ? "Nach manueller Prüfung für DMO/RIS kopieren" : hasPending ? "Diktat für DMO/RIS kopieren" : state.lastResultTask === "assessment" ? "Beurteilung für DMO/RIS kopieren" : "Geprüftes Ergebnis für DMO/RIS kopieren";
   button.setAttribute("aria-label", button.title);
   const use = icon.querySelector("use");
   if (use) use.setAttribute("href", "#icon-insert");
@@ -964,98 +829,28 @@ function setMiniInsertState() {
   if (save) save.disabled = !hasReview || !state.contextReport?.source?.path;
 }
 
-function rememberFocusedField(focused, { preserveFieldMap = false, accessMode = fieldAccessMode() } = {}) {
-  if (focused?.ok === false || !focused?.windowHandle || state.working || state.transferInFlight) return null;
-  state.focusedTarget = {
-    ...focused,
-    accessMode: normalizeFieldAccessMode(accessMode),
-    expectedFieldHash: focused.hash || null,
-    replaceAll: focused.strategy !== "TextPattern.Selection",
-    selectionOnly: focused.strategy === "TextPattern.Selection",
-  };
-  state.fieldLocked = true;
-  setHelperFieldType(inferHelperFieldType(focused));
-  state.helperSourceText = typeof focused.text === "string" ? focused.text.trim() : "";
-  state.pendingDictationText = "";
-  state.pendingDictationTarget = null;
-  state.transferNeedsReview = null;
-  if (!preserveFieldMap) renderFieldMapperReport(null);
-  void window.radimoAgent.patchWorkflow({
-    fieldType: state.helperFieldType,
-    fieldLabel: helperFieldLabel(),
-    phase: "capturing",
-    target: "selected-field",
-    targetIdentity: state.focusedTarget,
-  });
-  renderMiniTarget();
-  syncDiscussionScope();
-  setMiniInsertState();
-  return state.focusedTarget;
-}
-
-async function captureWorkingField({ selectionOnly = false, point = null } = {}) {
+async function captureWorkingField() {
   if (state.working || state.transferInFlight) {
     helperSetStatus("Das Arbeitsfeld kann während einer laufenden Aktion nicht gewechselt werden.", "Bitte warten");
     return null;
   }
-  if (fieldAccessMode() === "clipboard") {
-    const value = await captureClipboardSource();
-    if (!value) openPanel("contextDrawer");
-    return value;
-  }
-  await window.radimoAgent.setHelperFocusable(false);
-  try {
-    const focused = await window.radimoAgent.readFocusedField({
-      selectionOnly,
-      accessMode: fieldAccessMode(),
-      pointX: Number.isFinite(point?.x) ? point.x : "",
-      pointY: Number.isFinite(point?.y) ? point.y : "",
-    });
-    const target = rememberFocusedField(focused);
-    if (target) {
-      const label = selectionOnly ? "Textauswahl im externen Feld aktiv" : "Externes Feld aktiv";
-      helperSetStatus(state.helperSourceText ? `${label} · ${state.helperSourceText.length} Zeichen.` : `${label} · Cursor bleibt im Zielprogramm.`, label);
-      return target;
-    }
-    const message = focused?.error === "no-selection"
-      ? "Keine Textauswahl gefunden. Text markieren und Auswahl erneut aktivieren."
-      : focused?.error === "helper-focused"
-        ? "Das ReportHalo-Fenster ist noch aktiv. Cursor im Zielprogramm setzen und Feld erneut aktivieren."
-      : focused?.error === "accessibility-unavailable" || focused?.error === "target-control-unavailable" || focused?.error === "window-not-accessible"
-        ? "Dieses DMO/RIS-Feld stellt keinen lesbaren UIA-Text bereit. Text markieren, Strg+C drücken und über die Zwischenablage übernehmen."
-      : "Kein unterstütztes externes Textfeld gefunden. Text kann hierher gezogen werden.";
-    helperSetStatus(message, focused?.error === "no-selection" ? "Keine Auswahl" : focused?.accessibility === "not-exposed" ? "UIA nicht verfügbar" : "Feld fehlt");
-    return null;
-  } catch (error) {
-    helperSetStatus(error.message || "Arbeitsfeld konnte nicht aktiviert werden.", "Prüfung nötig");
-    return null;
-  } finally {
-    void window.radimoAgent.setHelperFocusable(Boolean(state.activePanel) || state.settingsOpen);
-  }
+  const value = await captureClipboardSource();
+  if (!value) openPanel("contextDrawer");
+  return value;
 }
 
-async function miniCaptureField({ point = null } = {}) {
-  return captureWorkingField({ selectionOnly: false, point });
-}
-
-async function miniCaptureSelection({ point = null } = {}) {
-  return captureWorkingField({ selectionOnly: true, point });
+async function miniCaptureField() {
+  return captureWorkingField();
 }
 
 function adoptTextSource(value) {
-  state.focusedTarget = null;
-  state.fieldLocked = false;
   state.helperSourceText = String(value || "").trim();
-  state.pendingDictationText = "";
-  state.pendingDictationTarget = null;
   state.transferNeedsReview = null;
   state.lastSourceText = "";
   state.lastAgentText = "";
   state.lastAgentResult = "";
   state.lastResultInsertText = "";
   state.lastResultTask = "";
-  state.lastResultTarget = null;
-  state.lastChatResultTarget = null;
   state.lastResultApplied = false;
   state.manualReviewPending = false;
   state.lastAgentMeta = emptyAgentMeta();
@@ -1064,7 +859,6 @@ function adoptTextSource(value) {
   if (review) review.value = "";
   renderReviewDiff("", "");
   renderAgentNotes(state.lastAgentMeta);
-  renderFieldMapperReport(null);
   void window.radimoAgent.patchWorkflow({ phase: "idle", target: "text", targetIdentity: null });
   syncDiscussionScope();
   renderMiniTarget();
@@ -1119,8 +913,8 @@ async function ensureWorkflow(mode) {
   const workflow = await window.radimoAgent.patchWorkflow({
     mode,
     phase: "reviewing",
-    target: state.focusedTarget?.windowHandle ? "selected-field" : "text",
-    targetIdentity: state.focusedTarget || null,
+    target: "text",
+    targetIdentity: null,
   });
   state.workflow = workflow || state.workflow;
 }
@@ -1395,11 +1189,9 @@ function syncDiscussionScope() {
   const scope = $("miniChatScope");
   if (!scope) return;
   const source = currentHelperText();
-  scope.textContent = hasLockedTarget()
-    ? `${helperFieldLabel()} wird automatisch mitbesprochen · Zielfeld bleibt unverändert`
-    : source
-      ? "Textquelle wird automatisch mitbesprochen · nichts wird ins Zielfeld geschrieben"
-      : "Kein Textkontext · Frage kann trotzdem gestellt werden";
+  scope.textContent = source
+    ? "Textquelle wird automatisch mitbesprochen · DMO/RIS bleibt unverändert"
+    : "Kein Textkontext · Frage kann trotzdem gestellt werden";
 }
 
 function appendChatMessage(role, value, { unread = role === "assistant" } = {}) {
@@ -1598,7 +1390,7 @@ function resultTaskLabel(task) {
 }
 
 function formatResultMeta(task, meta, { activeTarget = false, transferred = false, verified = false, replaced = false, appended = false, manualReview = false, unverified = false, clipboardPrepared = false } = {}) {
-  const status = appended && verified ? "Die Beurteilung wurde unterhalb des vorhandenen Textes ergänzt." : replaced && verified ? "Der vollständige Text wurde im aktiven Feld ersetzt." : manualReview ? "Das aktive Feld wurde nicht verändert. Der Entwurf wartet auf deine Prüfung im Editor." : clipboardPrepared ? (appended ? "Die Beurteilung liegt als Paste-Vorlage in der Zwischenablage; im RIS prüfen und am passenden Cursor einfügen." : "Der vollständige Ergebnistext liegt als Paste-Vorlage in der Zwischenablage; im RIS prüfen und bewusst einfügen.") : unverified ? "Die Übertragung wurde gesendet, aber das RIS-Feld lässt sich nicht zurücklesen. Der Ergebnistext liegt in der Zwischenablage; bitte im RIS prüfen." : transferred ? "Die Übertragung wurde versucht, aber das Zielfeld ist noch nicht verifiziert." : activeTarget ? "Das aktive Feld wurde nicht verändert, weil es nicht verifiziert werden konnte." : "Kein aktives externes Feld wurde verändert.";
+  const status = manualReview ? "Der lokale Entwurf steht im Editor zur Prüfung; kein externes Feld wurde verändert." : clipboardPrepared ? (appended ? "Die Beurteilung liegt als Paste-Vorlage in der Zwischenablage; im RIS prüfen und am passenden Cursor einfügen." : "Der vollständige Ergebnistext liegt als Paste-Vorlage in der Zwischenablage; im RIS prüfen und bewusst einfügen.") : "Der lokale Entwurf ist bereit; kein externes Feld wurde automatisch verändert.";
   const lines = [`${resultTaskLabel(task)} abgeschlossen. ${status}`];
   const sections = [
     ["Geändert", meta.changes],
@@ -1628,7 +1420,6 @@ function formatChatNotes(meta) {
 
 async function runAgentAction(task, instruction = "", sourceOverride = null) {
   if (state.working) return;
-  const operationTarget = targetSnapshot();
   const source = sourceOverride?.trim() || await ensureSource({ allowEmpty: (task === "discussion" || task === "proposal") && Boolean(instruction.trim()) });
   if (!source && !instruction.trim()) {
     helperSetStatus("Zuerst ein Arbeitsfeld aktivieren oder eine Frage eingeben.", "Eingang fehlt");
@@ -1653,13 +1444,10 @@ async function runAgentAction(task, instruction = "", sourceOverride = null) {
   state.activeTask = task;
   state.lastSourceText = source;
   state.lastAgentText = "";
-  state.lastChatResultTarget = isChat ? operationTarget : null;
   if (!isChat) {
     state.pendingDictationText = "";
-    state.pendingDictationTarget = null;
     state.lastResultApplied = false;
     state.transferNeedsReview = null;
-    state.lastResultTarget = operationTarget;
     state.manualReviewPending = false;
     state.lastAgentResult = "";
     state.lastResultInsertText = "";
@@ -1684,7 +1472,7 @@ async function runAgentAction(task, instruction = "", sourceOverride = null) {
       writingProfile: state.writingProfile,
       fieldType: state.helperFieldType,
       fieldLabel: helperFieldLabel(),
-      targetIdentity: state.focusedTarget?.windowHandle ? { ...state.focusedTarget } : null,
+      targetIdentity: null,
       imagePath: attachedImage,
     });
   } catch (error) {
@@ -1703,51 +1491,14 @@ function reviewText() {
   return String($("miniReviewText")?.value || state.lastAgentResult || "").trim();
 }
 
-async function insertTextIntoField(value, { isDictation = false, automatic = false, append = false, targetOverride = null, sourceText = null } = {}) {
+async function insertTextIntoField(value, { isDictation = false, append = false, sourceText = null } = {}) {
   const textToInsert = String(value || "").trim();
-  const target = targetOverride || state.focusedTarget;
   if (!textToInsert) {
     helperSetStatus("Kein Ergebnis zum Einsetzen vorhanden.", "Leer");
     return null;
   }
-  if (!target?.windowHandle && !targetOverride && fieldAccessMode() === "clipboard") {
-    try {
-      await window.radimoAgent.writeClipboard(textToInsert);
-      helperSetStatus(append ? "Beurteilung kopiert. Im RIS/DMO prüfen und am passenden Cursor mit Strg+V einfügen." : "Vollständiger Ergebnistext kopiert. Im RIS/DMO prüfen und mit Strg+V einfügen.", "Kopiert");
-      return { ok: true, verified: false, copied: true };
-    } catch (error) {
-      helperSetStatus(error.message || "Ergebnis konnte nicht in die Zwischenablage kopiert werden.", "Prüfung nötig");
-      return null;
-    }
-  }
-  if (!target?.windowHandle || !state.fieldLocked) {
-    helperSetStatus("Kein gesichertes Arbeitsfeld für dieses Ergebnis vorhanden.", "Feld fehlt");
-    return null;
-  }
-  if (targetOverride && !sameTargetIdentity(state.focusedTarget, targetOverride)) {
-    helperSetStatus("Das Ergebnis gehört zu einem anderen Arbeitsfeld. Bitte die Aktion erneut starten.", "Zielfeld geändert");
-    return null;
-  }
-  if (target.selectionOnly && !isDictation) {
-    try {
-      await window.radimoAgent.writeClipboard(textToInsert);
-      helperSetStatus("Die markierte Auswahl wird nicht als vollständiges Feld überschrieben. Ergebnis kopiert; im RIS an der Auswahl mit Strg+V einsetzen.", "Manuell einfügen");
-      return { ok: true, verified: false, copied: true, selectionPaste: true };
-    } catch (error) {
-      helperSetStatus(error.message || "Ergebnis konnte nicht in die Zwischenablage kopiert werden.", "Prüfung nötig");
-      return null;
-    }
-  }
-  if (target.supportsWrite === false) {
-    helperSetStatus("Das aktive Arbeitsfeld ist schreibgeschützt.", "Nur lesen");
-    return null;
-  }
-  if (state.transferNeedsReview && sameTargetIdentity(state.transferNeedsReview.target, target)) {
-    helperSetStatus("Die letzte Übertragung ist nicht rücklesbar. Ergebnis im RIS prüfen oder das Zielfeld neu aktivieren.", "Manuell prüfen");
-    return null;
-  }
   if (!isDictation && state.lastResultApplied) {
-    helperSetStatus("Dieses Ergebnis wurde bereits übertragen. Für eine neue Übernahme den Text zuerst ändern oder die Aktion erneut starten.", "Bereits übertragen");
+    helperSetStatus("Dieses Ergebnis wurde bereits kopiert. Für eine neue Übernahme den Text zuerst ändern oder die Aktion erneut starten.", "Bereits kopiert");
     return null;
   }
   if (state.transferInFlight) return null;
@@ -1755,83 +1506,29 @@ async function insertTextIntoField(value, { isDictation = false, automatic = fal
   setMiniInsertState();
   const existingSource = String(sourceText ?? (state.helperSourceText || state.lastSourceText || "")).trim();
   const appendText = append && existingSource && !/[\r\n]\s*$/.test(existingSource) ? `\n\n${textToInsert}` : textToInsert;
-  await window.radimoAgent.setHelperFocusable(false);
-  helperSetStatus(
-    isDictation ? "Diktat wird eingesetzt…" : append ? "Beurteilung wird ergänzt…" : automatic ? "Ergebnis wird im externen Feld ersetzt…" : "Geprüftes Ergebnis wird eingesetzt…",
-    append ? "Ergänzen" : automatic ? "Ersetzen" : "Einfügen",
-  );
+  helperSetStatus(isDictation ? "Diktat wird kopiert…" : append ? "Beurteilung wird als Ergänzung kopiert…" : "Ergebnis wird kopiert…", append ? "Ergänzen" : "Kopieren");
   try {
-    await window.radimoAgent.patchWorkflow({
-      phase: "transferring",
-      target: "selected-field",
-      targetIdentity: target,
-    });
-    const response = await window.radimoAgent.writeFocusedField({
-      text: appendText,
-      target: {
-        ...target,
-        append: isDictation ? false : append,
-        replaceAll: isDictation ? false : append || target.replaceAll !== false,
-        insertAtCursor: isDictation || target.insertAtCursor === true,
-      },
-    });
-    if (response?.actualHash && response.verified && state.focusedTarget && sameTargetIdentity(state.focusedTarget, target)) state.focusedTarget.expectedFieldHash = response.actualHash;
-    let dictationFieldText = null;
-    if (isDictation && response?.ok && response.verified) {
-      if (typeof response.actualText === "string") {
-        dictationFieldText = response.actualText;
-      } else {
-        try {
-          const refreshed = await window.radimoAgent.readFocusedField({
-            windowHandle: target.windowHandle,
-            processId: target.processId,
-            controlWindowHandle: target.controlWindowHandle || target.nativeWindowHandle || "",
-            accessMode: target.accessMode || fieldAccessMode(),
-          });
-          if (refreshed?.ok && typeof refreshed.text === "string") {
-            dictationFieldText = refreshed.text;
-            if (state.focusedTarget && sameTargetIdentity(state.focusedTarget, target)) state.focusedTarget.expectedFieldHash = refreshed.hash || state.focusedTarget.expectedFieldHash;
-          }
-        } catch { /* the verified write remains the source of truth when a second read is unavailable */ }
-      }
-    }
-    if (response?.ok && response.verified) {
-      state.transferNeedsReview = null;
-      if (isDictation) state.pendingDictationText = "";
-      if (isDictation) state.pendingDictationTarget = null;
-      if (!isDictation) state.lastResultApplied = true;
-      if (isDictation) {
-        state.helperSourceText = (dictationFieldText ?? existingSource).trim();
-      } else {
-        state.helperSourceText = append ? [existingSource, textToInsert].filter(Boolean).join("\n\n") : textToInsert;
-      }
-      helperSetStatus(append ? "Beurteilung ergänzt und Zielfeld verifiziert." : automatic ? "Ergebnis direkt ersetzt und Zielfeld verifiziert." : "Eingesetzt und Zielfeld verifiziert.", "Verifiziert");
+    await window.radimoAgent.writeClipboard(appendText);
+    state.transferNeedsReview = null;
+    if (isDictation) {
+      state.pendingDictationText = "";
+      state.helperSourceText = append ? [existingSource, textToInsert].filter(Boolean).join("\n\n") : textToInsert;
       setMiniDictationState("idle");
-    } else if (response?.ok) {
-      state.transferNeedsReview = { target: { ...target }, text: appendText, isDictation, automatic, at: Date.now() };
-      try { await window.radimoAgent.writeClipboard(appendText); } catch { /* result remains in the review panel */ }
-      helperSetStatus("Die RIS-Übertragung wurde gesendet, aber der Feldinhalt lässt sich nicht zurücklesen. Ergebnis liegt in der Zwischenablage; bitte im RIS prüfen.", "Manuell prüfen");
     } else {
-      try { await window.radimoAgent.writeClipboard(appendText); } catch { /* result remains in the review panel */ }
-      state.transferNeedsReview = null;
-      helperSetStatus(`Einsetzen gestoppt: ${response?.error || "Ziel geändert"}. Ergebnis liegt in der Zwischenablage; im RIS prüfen und mit Strg+V einsetzen.`, "Prüfung nötig");
+      state.lastResultApplied = true;
+      state.helperSourceText = append ? [existingSource, textToInsert].filter(Boolean).join("\n\n") : textToInsert;
     }
-    if (response?.ok && response.verified) {
-      await window.radimoAgent.patchWorkflow({
-        phase: "ready",
-        target: "selected-field",
-        targetIdentity: target,
-      });
-    }
+    await window.radimoAgent.patchWorkflow({ phase: "ready", target: "text", targetIdentity: null });
+    helperSetStatus(append ? "Beurteilung kopiert. Im RIS/DMO prüfen und am passenden Cursor mit Strg+V ergänzen." : isDictation ? "Diktat kopiert. Im RIS/DMO am Cursor mit Strg+V einfügen." : "Vollständiger Ergebnistext kopiert. Im RIS/DMO prüfen und mit Strg+V einfügen.", "Kopiert");
+    const response = { ok: true, verified: false, copied: true, externalValidation: "not-available" };
     setMiniInsertState();
-    return response || null;
+    return response;
   } catch (error) {
-    helperSetStatus(error.message || "Ergebnis konnte nicht eingesetzt werden.", "Prüfung nötig");
+    helperSetStatus(error.message || "Ergebnis konnte nicht in die Zwischenablage kopiert werden.", "Prüfung nötig");
     return null;
   } finally {
     state.transferInFlight = false;
     setMiniInsertState();
-    void window.radimoAgent.setHelperFocusable(Boolean(state.activePanel) || state.settingsOpen);
   }
 }
 
@@ -1841,22 +1538,7 @@ async function insertPendingDictation() {
     helperSetStatus("Noch kein Diktat zum Einsetzen vorhanden.", "Leer");
     return null;
   }
-  if (!state.pendingDictationTarget?.windowHandle && fieldAccessMode() === "clipboard") {
-    try {
-      await window.radimoAgent.writeClipboard(textToInsert);
-      state.pendingDictationText = "";
-      state.pendingDictationTarget = null;
-      state.helperSourceText = textToInsert;
-      syncDiscussionScope();
-      setMiniDictationState("idle");
-      helperSetStatus("Diktat kopiert. Im RIS/DMO am Cursor mit Strg+V einfügen.", "Kopiert");
-      return { ok: true, verified: false, copied: true };
-    } catch (error) {
-      helperSetStatus(error.message || "Diktat konnte nicht in die Zwischenablage kopiert werden.", "Prüfung nötig");
-      return null;
-    }
-  }
-  return insertTextIntoField(textToInsert, { isDictation: true, targetOverride: state.pendingDictationTarget });
+  return insertTextIntoField(textToInsert, { isDictation: true });
 }
 
 async function insertReviewResult() {
@@ -1873,7 +1555,6 @@ async function insertReviewResult() {
   }
   await insertTextIntoField(transfer.text, {
     append: transfer.append,
-    targetOverride: state.lastResultTarget,
     sourceText: state.lastSourceText,
   });
 }
@@ -1905,56 +1586,39 @@ async function applyCompletedAgentResult() {
   renderAgentNotes(meta);
   $("miniReviewText").value = result;
   renderReviewDiff(state.lastSourceText, result);
-  if (state.activePanel && isWorkspacePanel()) setResultEditorText(result);
+  setResultEditorText(result);
   let response = null;
   const appended = task === "assessment";
   const proposal = task === "proposal";
   const manualReview = proposal || incompleteCorrection || Boolean(state.actionSettings?.[task]?.manualReview);
-  const operationTarget = state.lastResultTarget;
-  const targetUnchanged = Boolean(operationTarget?.windowHandle && state.fieldLocked && sameTargetIdentity(state.focusedTarget, operationTarget));
   const automaticTransferText = appended ? generatedText : result;
-  if (targetUnchanged && !manualReview) response = await insertTextIntoField(automaticTransferText, { automatic: true, append: appended, targetOverride: operationTarget, sourceText: state.lastSourceText });
-  if (!targetUnchanged && !manualReview && !proposal && fieldAccessMode() === "clipboard" && automaticTransferText) response = await insertTextIntoField(automaticTransferText, { append: appended, sourceText: state.lastSourceText });
+  if (!manualReview && !proposal && automaticTransferText) response = await insertTextIntoField(automaticTransferText, { append: appended, sourceText: state.lastSourceText });
   if (manualReview) {
     state.manualReviewPending = true;
     openResultEditor(result);
   }
   if (incompleteCorrection) helperSetStatus("Das Lektoratsergebnis wirkt unvollständig und wurde nicht übertragen. Bitte im Editor prüfen oder die Aktion erneut starten.", "Prüfung nötig");
   const clipboardPrepared = response?.copied === true;
-  const transferred = Boolean(response?.ok && !clipboardPrepared);
-  const verified = transferred && response.verified === true;
-  const unverified = transferred && !verified;
-  if (!manualReview && operationTarget?.windowHandle && !targetUnchanged) helperSetStatus("Das Arbeitsfeld wurde während der Anfrage geändert. Nichts wurde übertragen.", "Zielfeld geändert");
-  if (!manualReview && !response?.ok && !operationTarget?.windowHandle && fieldAccessMode() !== "clipboard" && !(state.focusedTarget?.windowHandle && state.fieldLocked)) helperSetStatus("Ergebnis bereit. Externes Arbeitsfeld aktivieren.", "Feld fehlt");
   if (proposal) appendChatProposal(result);
   else appendChatMessage("assistant", formatResultMeta(task, meta, {
-      activeTarget: targetUnchanged,
-      transferred,
-      verified,
-      unverified,
-      replaced: verified && !appended,
-      appended: verified && appended,
+      activeTarget: false,
+      transferred: false,
+      verified: false,
+      unverified: false,
+      replaced: false,
+      appended: false,
       manualReview,
       clipboardPrepared,
     }));
-  if (transferred) {
-    void window.radimoAgent.addWorkflowArtifact({
-      kind: verified ? "result" : "draft",
-      label: verified ? (appended ? "Beurteilung ergänzt" : "Direkt eingesetzt") : "Übertragung prüfen",
-      detail: verified ? (appended ? "Beurteilung im verifizierten externen Zielfeld ergänzt" : "Ergebnis im verifizierten externen Zielfeld ersetzt") : "Übertragung ins externe Zielfeld nicht verifiziert",
-      text: result,
-    }).catch(() => {});
-  } else if (!targetUnchanged) {
-    void window.radimoAgent.addWorkflowArtifact({
-      kind: "draft",
-      label: "Antwortentwurf",
-      detail: "Externes Feld nicht aktiviert",
-      text: result,
-    }).catch(() => {});
-  }
+  void window.radimoAgent.addWorkflowArtifact({
+    kind: "draft",
+    label: appended ? "Beurteilung als Ergänzung" : "Antwortentwurf",
+    detail: clipboardPrepared ? "Vollständiger Text für bewusstes Einfügen in DMO/RIS kopiert" : "Lokaler Entwurf; externes Feld wird nicht automatisch verändert",
+    text: result,
+  }).catch(() => {});
   state.activeTask = "";
   setMiniInsertState();
-  if (!state.activePanel && !manualReview) openPanel(unverified ? "miniReviewDrawer" : "miniWorkspaceDrawer");
+  if (!state.activePanel && !manualReview) openPanel("miniWorkspaceDrawer");
 }
 
 function setMiniDictationState(mode) {
@@ -2026,12 +1690,6 @@ async function miniStartDictation(point = null) {
     await insertPendingDictation();
     return;
   }
-  const clipboardFallback = fieldAccessMode() === "clipboard";
-  const target = state.focusedTarget?.windowHandle ? state.focusedTarget : clipboardFallback ? null : await miniCaptureField({ point });
-  if (!target?.windowHandle && !clipboardFallback) {
-    helperSetStatus("Zuerst den Cursor im Zielprogramm setzen. Diktat wird erst nach Bestätigung eingesetzt.", "Feld fehlt");
-    return;
-  }
   await refreshOpenAIStatus();
   if (!state.openAIConfigured) {
     openSettings();
@@ -2047,7 +1705,7 @@ async function miniStartDictation(point = null) {
     stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: true, autoGainControl: true }, video: false });
     const mimeType = recordingMimeType();
     const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-    const recording = { recorder, stream, chunks: [], timer: null, cancelled: false, target: target ? { ...target } : null };
+    const recording = { recorder, stream, chunks: [], timer: null, cancelled: false };
     state.recording = recording;
     recorder.addEventListener("dataavailable", (event) => { if (event.data?.size) recording.chunks.push(event.data); });
     recorder.addEventListener("error", (event) => helperSetStatus(`Mikrofonfehler: ${event.error?.message || "Aufnahme abgebrochen"}`, "Prüfung nötig"));
@@ -2068,14 +1726,11 @@ async function miniStartDictation(point = null) {
         });
         state.pendingDictationText = String(result.text || "").trim();
         state.helperSourceText = state.pendingDictationText;
-        state.pendingDictationTarget = state.pendingDictationText && recording.target ? { ...recording.target } : null;
         setMiniDictationState(state.pendingDictationText ? "ready" : "idle");
         syncDiscussionScope();
         helperSetStatus(
           state.pendingDictationText
-            ? recording.target
-              ? "Diktat bereit. Einsetzen bleibt eine separate Bestätigung."
-              : "Diktat bereit. Beim Einsetzen wird der Text kopiert; im RIS/DMO am Cursor mit Strg+V einfügen."
+            ? "Diktat bereit. Beim Einsetzen wird der Text kopiert; im RIS/DMO am Cursor mit Strg+V einfügen."
             : "Leere Transkription erhalten.",
           state.pendingDictationText ? "Einfügen bereit" : "Leer",
         );
@@ -2098,397 +1753,12 @@ async function miniStartDictation(point = null) {
   }
 }
 
-function fieldMapperTargetRule() {
-  const rules = Array.isArray(state.fieldMapperProfile?.include) ? state.fieldMapperProfile.include : [];
-  return rules.find((rule) => rule.key === "report")
-    || rules.find((rule) => rule.key === "summary")
-    || rules.find((rule) => rule.patterns?.some((pattern) => /befund|report|impression|beurteil/i.test(pattern)))
-    || rules[0]
-    || null;
-}
-
-function fieldMapperTargetLabel() {
-  return fieldMapperTargetRule()?.label || "Befund";
-}
-
-function sameFieldMapperTarget(left, right) {
-  if (!left || !right) return false;
-  if (left.windowHandle && right.windowHandle && String(left.windowHandle) !== String(right.windowHandle)) return false;
-  if (left.nativeWindowHandle && right.nativeWindowHandle) return String(left.nativeWindowHandle) === String(right.nativeWindowHandle);
-  if (left.runtimeId && right.runtimeId) return String(left.runtimeId) === String(right.runtimeId);
-  if (left.automationId && right.automationId) return String(left.automationId) === String(right.automationId);
-  return Boolean(left.label && right.label && left.label === right.label && left.controlType === right.controlType);
-}
-
-function fieldMapperTargetFromField(report, field, rule) {
-  return {
-    windowHandle: String(field?.windowHandle || report?.source?.windowHandle || ""),
-    processId: Number(field?.processId || report?.source?.processId) || 0,
-    controlWindowHandle: Number(field?.nativeWindowHandle) || 0,
-    nativeWindowHandle: Number(field?.nativeWindowHandle) || 0,
-    runtimeId: String(field?.runtimeId || ""),
-    automationId: String(field?.automationId || ""),
-    controlType: String(field?.controlType || ""),
-    name: String(field?.name || ""),
-    title: String(field?.name || field?.label || ""),
-    fieldMapperKey: String(rule?.key || ""),
-    fieldMapperLabel: String(rule?.label || field?.label || "Befund"),
-    replaceAll: true,
-  };
-}
-
-function preferredFieldMapperMatch(report) {
-  const rule = fieldMapperTargetRule();
-  if (!rule) return { rule: null, candidates: [] };
-  const candidates = (Array.isArray(report?.fields) ? report.fields : []).filter((field) => !field.excluded && !field.isPassword && !field.isOffscreen && field.isEnabled !== false && field.matches?.some((match) => match.key === rule.key));
-  return { rule, candidates };
-}
-
-function loadFieldMapperPreferences() {
-  let stored = {};
-  try { stored = JSON.parse(window.localStorage.getItem(FIELD_MAPPER_PREFERENCE_STORAGE_KEY) || "{}"); } catch { stored = {}; }
-  state.fieldMapperAutoTarget = state.experimentalUia && stored.autoTarget === true;
-  const toggle = $("fieldMapperAutoTarget");
-  if (toggle) toggle.checked = state.fieldMapperAutoTarget;
-}
-
-function loadFieldAccessPreference() {
-  // UIA is never restored from storage. It must be enabled and selected again
-  // for the current session, so an old preference cannot trigger automation
-  // after an update.
-  state.fieldAccessMode = "clipboard";
-  const select = $("fieldAccessMode");
-  if (select) select.value = state.fieldAccessMode;
-  text("fieldAccessStatus", fieldAccessDescription());
-}
-
-function applyFieldAccessCapabilities(payload = {}) {
-  const enabled = payload?.experimentalUia === true;
-  const previousMode = state.fieldAccessMode;
-  state.experimentalUia = enabled;
-  const select = $("fieldAccessMode");
-  const option = select?.querySelector('option[value="uia"]');
-  if (option) {
-    option.hidden = !enabled;
-    option.disabled = !enabled;
-  }
-  for (const id of ["scanFieldMapper", "inspectFieldMapper", "fieldMapperAutoTarget"]) {
-    const control = $(id);
-    if (control) control.disabled = !enabled;
-  }
-  const fieldMapperMenu = $("miniContextFieldMapper");
-  if (fieldMapperMenu) fieldMapperMenu.classList.toggle("hidden", !enabled);
-  if (!enabled && previousMode === "uia") releaseUiaTargetForClipboard();
-  state.fieldAccessMode = normalizeFieldAccessMode(state.fieldAccessMode);
-  if (select) select.value = state.fieldAccessMode;
-  text("fieldAccessStatus", enabled
-    ? fieldAccessDescription()
-    : "Zwischenablage-Modus aktiv. DMO/RIS-Text markieren, Strg+C drücken und ausdrücklich übernehmen; Ergebnisse werden bewusst zurückkopiert.");
-  if (!enabled) text("fieldMapperStatus", "UIA-Feldsuche ist im normalen ReportHalo-Build nicht enthalten. DMO/RIS-Text bitte markieren, Strg+C drücken und ausdrücklich übernehmen.");
-  if (!enabled) text("fieldMapperTargetStatus", "Zwischenablage und Drag-and-drop bleiben verfügbar.");
-  updateFieldAccessUi();
-}
-
-function saveFieldAccessPreference(value) {
-  const previousMode = fieldAccessMode();
-  state.fieldAccessMode = normalizeFieldAccessMode(value);
-  const persistedMode = state.fieldAccessMode === "uia" ? "clipboard" : state.fieldAccessMode;
-  try { window.localStorage.setItem(FIELD_ACCESS_STORAGE_KEY, JSON.stringify({ mode: persistedMode })); } catch { /* optional preference */ }
-  const select = $("fieldAccessMode");
-  if (select) select.value = state.fieldAccessMode;
-  text("fieldAccessStatus", fieldAccessDescription());
-  updateFieldAccessUi();
-  if (state.fieldAccessMode === "clipboard" && previousMode !== "clipboard" && hasLockedTarget()) {
-    releaseUiaTargetForClipboard();
-    helperSetStatus("UIA-Zielfeld gelöst. DMO/RIS-Text jetzt kopieren und ausdrücklich übernehmen.", "Zwischenablage");
-  } else if (value === "uia" && state.fieldAccessMode !== "uia") {
-    helperSetStatus("UIA-Feldzugriff ist in diesem Build deaktiviert. Zwischenablage verwenden.", "Zwischenablage");
-  }
-}
-
-function saveFieldMapperPreferences() {
-  try { window.localStorage.setItem(FIELD_MAPPER_PREFERENCE_STORAGE_KEY, JSON.stringify({ autoTarget: state.fieldMapperAutoTarget })); } catch { /* optional preference */ }
-}
-
-function fieldMapperPrompt() {
-  const report = state.fieldMapReport;
-  if (!report || !$("useFieldMapper")?.checked) return "";
-  const groups = (report.groups || []).filter((group) => state.fieldMapSelectedKeys.has(group.key) && group.values?.length);
-  if (!groups.length) return "";
-  const blocks = groups.map((group) => `${group.label}:\n${group.values.join("\n\n")}`);
-  return [
-    "[EXPLICITLY ATTACHED READ-ONLY RIS CONTEXT]",
-    "The following values were read from configured text fields of the active application. Use them only as case context. Do not infer missing values and do not treat field labels as findings.",
-    blocks.join("\n\n"),
-    "[/EXPLICITLY ATTACHED READ-ONLY RIS CONTEXT]",
-  ].join("\n");
-}
-
-function syncFieldMapperAttachment() {
-  const toggle = $("useFieldMapper");
-  const hasValues = Boolean(state.fieldMapReport?.groups?.some((group) => group.values?.length));
-  if (!toggle) return;
-  toggle.disabled = !hasValues;
-  if (!hasValues) toggle.checked = false;
-}
-
-function fieldMapperFieldLabel(field) {
-  const label = field?.label || field?.name || field?.labeledBy || field?.automationId || "Unbenanntes Textfeld";
-  const identity = [field?.automationId, field?.controlType, field?.frameworkId].filter(Boolean).join(" · ");
-  return identity ? `${label} · ${identity}` : label;
-}
-
-function renderFieldMapperReport(report) {
-  const previousReport = state.fieldMapReport;
-  state.fieldMapReport = report || null;
-  if (!report || report !== previousReport) state.fieldMapperAutoSelection = null;
-  state.fieldMapSelectedKeys = new Set((report?.groups || []).map((group) => group.key));
-  syncFieldMapperAttachment();
-  const autoToggle = $("fieldMapperAutoTarget");
-  if (autoToggle) autoToggle.checked = state.fieldMapperAutoTarget;
-  const targetStatus = $("fieldMapperTargetStatus");
-  if (targetStatus) targetStatus.textContent = state.fieldMapperAutoSelection
-    ? `Auto-Ziel: ${state.fieldMapperAutoSelection.label} · Drag-and-drop bleibt verfügbar.`
-    : "Auto-Ziel nur bei eindeutiger Zuordnung; Drag-and-drop bleibt immer verfügbar.";
-  const list = $("fieldMapperItems");
-  if (!list) return;
-  list.replaceChildren();
-  if (!report) {
-    text("fieldMapperStatus", "Nur nach ausdrücklichem Klick: blendet den Helper kurz aus und prüft den UIA-Baum des aktiven Fensters. Identitätsfelder werden ausgeschlossen.");
-    return;
-  }
-  const diagnostics = report.diagnostics || {};
-  const appName = report.source?.processName || "aktives Fenster";
-  const mode = diagnostics.readValues ? "Kontext gelesen" : "Felder geprüft";
-  const accessNote = diagnostics.strategy === "uia-only" ? " · UIA-only" : "";
-  const unavailableNote = diagnostics.inaccessibleFields ? ` · ${diagnostics.inaccessibleFields} nicht lesbar` : "";
-  text("fieldMapperStatus", `${mode}: ${appName} · ${diagnostics.matchedFields || 0} Treffer · ${report.groups?.length || 0} Gruppen · ${diagnostics.excludedFields || 0} ausgeschlossen${unavailableNote}${diagnostics.truncated ? " · Liste begrenzt" : ""}${accessNote}.`);
-  const configured = Array.isArray(report.configuredGroups) ? report.configuredGroups : [];
-  for (const configuredGroup of configured) {
-    const group = report.groups?.find((item) => item.key === configuredGroup.key);
-    const article = document.createElement("article");
-    article.className = "field-mapper-group";
-    const head = document.createElement("div");
-    head.className = "field-mapper-group-head";
-    const label = document.createElement("label");
-    label.className = "context-toggle";
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.checked = state.fieldMapSelectedKeys.has(configuredGroup.key);
-    checkbox.disabled = !group?.values?.length;
-    checkbox.addEventListener("change", () => {
-      if (checkbox.checked) state.fieldMapSelectedKeys.add(configuredGroup.key);
-      else state.fieldMapSelectedKeys.delete(configuredGroup.key);
-    });
-    const labelText = document.createElement("span");
-    labelText.textContent = configuredGroup.label;
-    label.append(checkbox, labelText);
-    const count = document.createElement("small");
-    count.textContent = group?.values?.length ? `${group.values.length} Wert${group.values.length === 1 ? "" : "e"}` : configuredGroup.fieldCount ? `${configuredGroup.fieldCount} Feld${configuredGroup.fieldCount === 1 ? "" : "er"} · leer` : "nicht gefunden";
-    head.append(label, count);
-    article.append(head);
-    if (group?.values?.length) {
-      for (const value of group.values.slice(0, 3)) {
-        const valueNode = document.createElement("div");
-        valueNode.className = "field-mapper-value";
-        valueNode.textContent = value.length > 700 ? `${value.slice(0, 700)}…` : value;
-        article.append(valueNode);
-      }
-    }
-    list.append(article);
-  }
-  const allFields = Array.isArray(report.fields) ? report.fields : [];
-  if (allFields.length) {
-    const details = document.createElement("details");
-    details.className = "field-mapper-all";
-    const summary = document.createElement("summary");
-    summary.textContent = `Alle erkannten Textfelder (${allFields.length})`;
-    details.append(summary);
-    const fieldList = document.createElement("div");
-    fieldList.className = "field-mapper-all-list";
-    for (const field of allFields) {
-      const item = document.createElement("div");
-      const isAutoTarget = sameFieldMapperTarget(field, state.fieldMapperAutoSelection?.field);
-      item.className = `field-mapper-field${field.excluded ? " is-excluded" : field.matches?.length ? " is-matched" : ""}${isAutoTarget ? " is-auto-target" : ""}`;
-      const title = document.createElement("strong");
-      title.textContent = fieldMapperFieldLabel(field);
-      const note = document.createElement("small");
-      const matches = field.matches?.map((match) => match.label || match.key).join(", ");
-      note.textContent = isAutoTarget ? "aktuelles Auto-Ziel · fokussiert" : field.excluded ? "ausgeschlossen" : matches ? `zugeordnet: ${matches}` : field.isPassword ? "geschütztes Feld" : "nicht zugeordnet · Inhalt nicht gelesen";
-      item.append(title, note);
-      fieldList.append(item);
-    }
-    details.append(fieldList);
-    list.append(details);
-  }
-}
-
-async function loadFieldMapperConfig() {
-  try {
-    const profile = await window.radimoAgent.getFieldMapperStatus();
-    state.fieldMapperProfile = profile;
-    $("fieldMapperInclude").value = profile?.includeText || FIELD_MAPPER_DEFAULT_INCLUDE;
-    $("fieldMapperExclude").value = profile?.excludeText || FIELD_MAPPER_DEFAULT_EXCLUDE;
-  } catch (error) {
-    state.fieldMapperProfile = null;
-    $("fieldMapperInclude").value = FIELD_MAPPER_DEFAULT_INCLUDE;
-    $("fieldMapperExclude").value = FIELD_MAPPER_DEFAULT_EXCLUDE;
-    text("fieldMapperStatus", error.message || "Feldzuordnung konnte nicht geladen werden.");
-  }
-}
-
-async function saveFieldMapperConfig({ silent = false } = {}) {
-  try {
-    const profile = await window.radimoAgent.setFieldMapperConfig({
-      includeText: $("fieldMapperInclude")?.value || "",
-      excludeText: $("fieldMapperExclude")?.value || "",
-    });
-    state.fieldMapperProfile = profile;
-    if (!silent) {
-      renderFieldMapperReport(null);
-      text("fieldMapperStatus", "Feldzuordnung gespeichert. UIA-Diagnose nur nach ausdrücklichem Klick starten.");
-      showToast("RIS-Feldzuordnung gespeichert.");
-    }
-    return profile;
-  } catch (error) {
-    text("fieldMapperStatus", error.message || "Feldzuordnung konnte nicht gespeichert werden.");
-    return null;
-  }
-}
-
-async function resetFieldMapperConfig() {
-  $("fieldMapperInclude").value = FIELD_MAPPER_DEFAULT_INCLUDE;
-  $("fieldMapperExclude").value = FIELD_MAPPER_DEFAULT_EXCLUDE;
-  await saveFieldMapperConfig();
-}
-
-async function autoSelectMappedField({ reportOverride = null } = {}) {
-  if (!state.experimentalUia || fieldAccessMode() !== "uia") {
-    text("fieldMapperTargetStatus", "UIA-Auto-Ziel ist in dieser Produktionsversion deaktiviert. Drag-and-drop und Zwischenablage bleiben verfügbar.");
-    helperSetStatus("Keine UIA-Feldsuche gestartet. DMO/RIS-Text bitte kopieren oder per Drag-and-drop übernehmen.", "Zwischenablage empfohlen");
-    return null;
-  }
-  if (state.fieldMapperAutoSelecting) return null;
-  state.fieldMapperAutoSelecting = true;
-  try {
-    const report = reportOverride || await scanFieldMapper({ readValues: false, autoSelect: false });
-    if (!report?.ok) return null;
-    if (report !== state.fieldMapReport) renderFieldMapperReport(report);
-    const { rule, candidates } = preferredFieldMapperMatch(report);
-    if (!rule) {
-      text("fieldMapperTargetStatus", "Keine Auto-Zielregel konfiguriert. Drag-and-drop bleibt verfügbar.");
-      helperSetStatus("Keine Feldregel für ein Auto-Ziel vorhanden. Das Feld per Drag-and-drop oder Target-Auswahl aktivieren.", "Manuell wählen");
-      return null;
-    }
-    if (candidates.length !== 1) {
-      const detail = candidates.length ? `${candidates.length} mögliche ${rule.label}-Felder gefunden` : `Kein ${rule.label}-Feld gefunden`;
-      text("fieldMapperTargetStatus", `${detail}. Drag-and-drop bleibt verfügbar.`);
-      helperSetStatus(`${detail}. Bitte das gewünschte Feld per Drag-and-drop oder Target-Auswahl festlegen.`, "Manuell wählen");
-      return null;
-    }
-    const field = candidates[0];
-    const mappedTarget = fieldMapperTargetFromField(report, field, rule);
-    await window.radimoAgent.setHelperFocusable(false);
-    try {
-      const diagnosticAccessMode = "uia";
-      const focused = await window.radimoAgent.focusMappedField({ windowHandle: mappedTarget.windowHandle, target: { ...mappedTarget, accessMode: diagnosticAccessMode } });
-      if (!focused?.ok || !focused.verified) {
-        helperSetStatus(`${rule.label}-Feld gefunden, aber der Fokus konnte nicht sicher bestätigt werden.`, "Prüfung nötig");
-        return null;
-      }
-      const read = await window.radimoAgent.readFocusedField({
-        windowHandle: mappedTarget.windowHandle,
-        processId: mappedTarget.processId,
-        controlWindowHandle: mappedTarget.controlWindowHandle,
-        accessMode: diagnosticAccessMode,
-      });
-      if (!read?.ok) {
-        helperSetStatus(`${rule.label}-Feld fokussiert, aber der vollständige Feldinhalt konnte nicht gelesen werden.`, "Prüfung nötig");
-        return null;
-      }
-      const target = rememberFocusedField({
-        ...read,
-        ...mappedTarget,
-        text: read.text,
-        hash: read.hash,
-        strategy: read.strategy,
-        approximate: read.approximate,
-        supportsWrite: read.supportsWrite !== false,
-        replaceAll: true,
-      }, { preserveFieldMap: true, accessMode: diagnosticAccessMode });
-      if (!target) return null;
-      state.fieldMapperAutoSelection = { key: rule.key, label: rule.label, field };
-      renderFieldMapperReport(state.fieldMapReport);
-      renderMiniTarget();
-      helperSetStatus(`${rule.label}-Feld automatisch gewählt · vollständiger Feldtext geladen.`, "Auto-Ziel");
-      return target;
-    } finally {
-      void window.radimoAgent.setHelperFocusable(Boolean(state.activePanel) || state.settingsOpen);
-    }
-  } finally {
-    state.fieldMapperAutoSelecting = false;
-  }
-}
-
-async function scanFieldMapper({ readValues = true, autoSelect = false } = {}) {
-  if (state.fieldMapperBusy) return;
-  if (!state.experimentalUia || fieldAccessMode() !== "uia") {
-    const message = "Zwischenablage-Modus aktiv. Keine UIA-Diagnose gestartet. DMO/RIS-Text markieren, Strg+C drücken und ausdrücklich übernehmen.";
-    text("fieldMapperStatus", message);
-    helperSetStatus(message, "Zwischenablage empfohlen");
-    return null;
-  }
-  state.fieldMapperBusy = true;
-  const button = $(readValues ? "scanFieldMapper" : "inspectFieldMapper");
-  if (button) button.disabled = true;
-  text("fieldMapperStatus", readValues ? "Konfigurierte UIA-Felder werden gelesen…" : "UIA-Textfelder des aktiven Fensters werden gesucht…");
-  try {
-    const profile = await saveFieldMapperConfig({ silent: true });
-    if (!profile) return;
-    const target = state.focusedTarget?.windowHandle ? state.focusedTarget : null;
-    const report = await window.radimoAgent.scanFieldWindow({
-      windowHandle: target?.windowHandle || "",
-      target,
-      accessMode: "uia",
-      readValues,
-    });
-    if (!report?.ok) {
-      renderFieldMapperReport(null);
-      text("fieldMapperStatus", report?.error === "helper-window" ? "Zuerst ein RIS-/Editorfenster aktivieren, dann erneut prüfen." : report?.error || "Aktives Fenster konnte nicht gelesen werden.");
-      helperSetStatus("RIS-Feldinspektor konnte das Fenster nicht lesen.", "Prüfung nötig");
-      return;
-    }
-    renderFieldMapperReport(report);
-    if (!readValues && autoSelect) void autoSelectMappedField({ reportOverride: report });
-    if (readValues && report.groups?.length) {
-      $("useFieldMapper").checked = false;
-      showToast(`${report.groups.length} RIS-Kontextgruppen bereit.`);
-    }
-    return report;
-  } catch (error) {
-    renderFieldMapperReport(null);
-    text("fieldMapperStatus", error.message || "RIS-Felder konnten nicht gelesen werden.");
-    helperSetStatus("RIS-Feldinspektor fehlgeschlagen.", "Prüfung nötig");
-  } finally {
-    state.fieldMapperBusy = false;
-    if (button) button.disabled = false;
-  }
-}
-
-async function copyFieldMapperReport() {
-  const value = state.fieldMapReport?.reportText;
-  if (!value) return;
-  try { await window.radimoAgent.writeClipboard(value); showToast("Feldmapper-Bericht kopiert."); } catch (error) { text("fieldMapperStatus", error.message || "Feldmapper-Bericht konnte nicht kopiert werden."); }
-}
-
 function contextPrompt() {
   const blocks = [];
   if (state.contextReport && $("useContext")?.checked) {
     const items = state.contextReport.items.map((item) => `### ${item.relation} · ${item.section} · ${item.name}\n${item.content || item.preview}`).join("\n\n");
     blocks.push(`[EXPLICITLY ATTACHED LOCAL CONTEXT]\n${items}\n[/EXPLICITLY ATTACHED LOCAL CONTEXT]`);
   }
-  const mapped = fieldMapperPrompt();
-  if (mapped) blocks.push(mapped);
   return blocks.length ? `\n\n${blocks.join("\n\n")}` : "";
 }
 
@@ -2846,7 +2116,6 @@ function contextReportText() {
     const report = state.contextReport;
     blocks.push(["ReportHalo Kontextbericht", `Erstellt: ${report.generatedAt}`, `Anker: ${report.source.path}`, `Strategie: ${report.strategy}`, "", ...report.items.flatMap((item) => [`## ${item.relation} · ${item.section} · ${item.name}`, item.content || item.preview, ""])].join("\n"));
   }
-  if (state.fieldMapReport?.reportText) blocks.push(state.fieldMapReport.reportText);
   return blocks.join("\n\n");
 }
 
@@ -2908,10 +2177,6 @@ function prepareCorrection() {
   if (!selected) return;
   state.helperSourceText = selected;
   state.pendingDictationText = "";
-  if (hasLockedTarget()) {
-    helperSetStatus("Fallmaterial wird nicht in das aktive Arbeitsfeld geschrieben. Erst als Textquelle prüfen.", "Prüfung nötig");
-    return;
-  }
   state.editorMode = "source";
   openPanel("miniEditorDrawer");
   helperSetStatus("Textquelle bereit. Im Chat prüfen.", "Text bereit");
@@ -2998,10 +2263,6 @@ function applyMiniEditorText() {
   }
   state.helperSourceText = value;
   state.pendingDictationText = "";
-  if (state.focusedTarget?.windowHandle && state.fieldLocked) {
-    void insertTextIntoField(value, { automatic: true });
-    return;
-  }
   syncDiscussionScope();
   helperSetStatus("Textquelle übernommen.", "Text bereit");
 }
@@ -3013,7 +2274,6 @@ async function sendMiniEditor() {
   if (!resultMode) {
     state.helperSourceText = value;
     state.pendingDictationText = "";
-    state.pendingDictationTarget = null;
   }
   if (!isWorkspacePanel()) openPanel("miniChatDrawer");
   appendChatMessage("user", value, { unread: false });
@@ -3059,8 +2319,6 @@ function clearMiniTarget() {
     return;
   }
   if (state.recording?.recorder?.state === "recording") { state.recording.cancelled = true; state.recording.recorder.stop(); }
-  state.focusedTarget = null;
-  state.fieldLocked = false;
   state.helperSourceText = "";
   state.pendingDictationText = "";
   state.lastAgentText = "";
@@ -3068,11 +2326,8 @@ function clearMiniTarget() {
   state.lastAgentResult = "";
   state.lastResultInsertText = "";
   state.lastResultApplied = false;
-  state.lastResultTarget = null;
-  state.lastChatResultTarget = null;
   state.transferNeedsReview = null;
   state.manualReviewPending = false;
-  state.pendingDictationTarget = null;
   state.lastAgentMeta = emptyAgentMeta();
   state.editorMode = "source";
   state.workflow = null;
@@ -3080,7 +2335,6 @@ function clearMiniTarget() {
   renderReviewDiff("", "");
   renderAgentNotes(state.lastAgentMeta);
   renderContext(null);
-  renderFieldMapperReport(null);
   text("contextStatus", "Keine Quelle");
   renderReferences([]);
   const capturePath = state.screenCapture?.path;
@@ -3118,7 +2372,7 @@ on("miniChatToggle", "click", () => openPanel("miniChatDrawer"));
 on("miniEditorUse", "click", applyMiniEditorText);
 on("miniEditorSend", "click", () => { void sendMiniEditor(); });
 on("miniEditorText", "input", (event) => {
-  if (state.editorMode === "source" && !hasLockedTarget()) {
+  if (state.editorMode === "source") {
     state.helperSourceText = event.target.value;
     state.pendingDictationText = "";
     syncDiscussionScope();
@@ -3142,19 +2396,6 @@ on("miniConfigReset", "click", resetMiniConfig);
 on("miniTargetClear", "click", (event) => { event.stopPropagation(); clearMiniTarget(); });
 on("miniCapture", "click", () => { void miniCaptureField(); });
 on("miniClipboardCapture", "click", () => { void captureClipboardSource(); });
-on("miniCaptureFromField", "click", () => {
-  if (!state.experimentalUia) { void captureClipboardSource(); return; }
-  if (!usesExperimentalFieldAccess()) {
-    const select = $("fieldAccessMode");
-    if (select) select.value = "uia";
-    saveFieldAccessPreference("uia");
-  }
-  void miniCaptureField();
-});
-on("fieldAccessMode", "change", (event) => {
-  saveFieldAccessPreference(event.target.value);
-  helperSetStatus(fieldAccessDescription(), "Zugriff geändert");
-});
 on("miniTargetCell", "dragenter", (event) => {
   event.preventDefault();
   event.currentTarget.classList.add("is-dragging");
@@ -3167,18 +2408,15 @@ on("miniTargetCell", "dragleave", (event) => {
 });
 on("miniTargetCell", "drop", (event) => { event.currentTarget.classList.remove("is-dragging"); handleMiniTargetDrop(event); });
 on("miniContextRun", "click", () => runMiniContextTarget(state.contextMenuTarget));
-on("miniContextSelection", "click", () => { closeMiniContextMenu(); void miniCaptureSelection(); });
 on("miniContextCopy", "click", () => { closeMiniContextMenu(); void copyMiniText(); });
 on("miniContextClipboard", "click", () => { closeMiniContextMenu(); void captureClipboardSource(); });
 on("miniContextReset", "click", () => { closeMiniContextMenu(); clearMiniTarget(); });
-on("miniContextAutoSelect", "click", () => { closeMiniContextMenu(); void autoSelectMappedField(); });
 on("miniContextConfigure", "click", () => {
   const definition = MINI_ACTIONS[state.contextMenuTarget];
   openMiniConfig(definition?.task || state.configTask);
 });
 on("miniContextVisibility", "click", toggleMiniContextVisibility);
 on("miniContextCubeSize", "click", toggleCubeMode);
-on("miniContextFieldMapper", "click", () => { closeMiniContextMenu(); openContext(); void scanFieldMapper({ readValues: false }); });
 on("miniContextSettings", "click", () => { closeMiniContextMenu(); openSettings(); });
 on("miniContextClose", "click", () => { closeMiniContextMenu(); void window.radimoAgent.setHelperFocusable(false); void window.radimoAgent.hideHelper(); });
 on("miniContextQuit", "click", () => { closeMiniContextMenu(); void window.radimoAgent.quitApp(); });
@@ -3213,28 +2451,6 @@ on("testConnection", "click", () => { void testConnection(); });
 on("copyDiagnostics", "click", () => { void copyDiagnostics(); });
 on("applyProxy", "click", () => { void applyProxy(); });
 on("chooseContext", "click", () => { void chooseContext(); });
-on("scanFieldMapper", "click", () => { void scanFieldMapper({ readValues: true }); });
-on("inspectFieldMapper", "click", () => { void scanFieldMapper({ readValues: false, autoSelect: state.fieldMapperAutoTarget }); });
-on("saveFieldMapper", "click", () => { void saveFieldMapperConfig(); });
-on("resetFieldMapper", "click", () => { void resetFieldMapperConfig(); });
-on("copyFieldMapper", "click", () => { void copyFieldMapperReport(); });
-on("fieldMapperAutoTarget", "change", (event) => {
-  if (!state.experimentalUia) {
-    event.target.checked = false;
-    state.fieldMapperAutoTarget = false;
-    saveFieldMapperPreferences();
-    helperSetStatus("UIA-Auto-Ziel ist in dieser Produktionsversion deaktiviert. Zwischenablage verwenden.", "Zwischenablage empfohlen");
-    return;
-  }
-  state.fieldMapperAutoTarget = Boolean(event.target.checked);
-  saveFieldMapperPreferences();
-  if (state.fieldMapperAutoTarget && state.fieldMapReport?.fields?.length) void autoSelectMappedField({ reportOverride: state.fieldMapReport });
-  else if (!state.fieldMapperAutoTarget) {
-    state.fieldMapperAutoSelection = null;
-    renderFieldMapperReport(state.fieldMapReport);
-    renderMiniTarget();
-  }
-});
 on("copyContext", "click", () => { void copyContext(); });
 on("copySelectedField", "click", () => { void copySelectedField(); });
 on("prepareCorrection", "click", prepareCorrection);
@@ -3250,7 +2466,7 @@ on("fetchReferenceUrl", "click", () => { void fetchReferenceUrl(); });
 on("importGuidance", "click", async () => { try { await window.radimoAgent.importGuidanceProfile(); showToast("Profil importiert."); } catch (error) { text("guidanceStatus", error.message || "Profil konnte nicht importiert werden."); } });
 on("exportGuidance", "click", async () => { try { await window.radimoAgent.exportGuidanceProfile(); showToast("Profil exportiert."); } catch (error) { text("guidanceStatus", error.message || "Profil konnte nicht exportiert werden."); } });
 on("openGuidanceFolder", "click", async () => { try { await window.radimoAgent.openGuidanceFolder(); } catch (error) { text("guidanceStatus", error.message || "Profilordner konnte nicht geöffnet werden."); } });
-on("insertTemplate", "click", async () => { try { const template = await window.radimoAgent.getTemplate($("templateSelect").value); if (template?.content) { if (hasLockedTarget()) { text("templateStatus", "Textquelle nur ohne aktives Arbeitsfeld verfügbar."); return; } state.helperSourceText = [currentHelperText(), template.content.trim()].filter(Boolean).join("\n\n"); openPanel("miniEditorDrawer"); $("miniEditorText").value = state.helperSourceText; } } catch (error) { text("templateStatus", error.message || "Vorlage konnte nicht geladen werden."); } });
+on("insertTemplate", "click", async () => { try { const template = await window.radimoAgent.getTemplate($("templateSelect").value); if (template?.content) { state.helperSourceText = [currentHelperText(), template.content.trim()].filter(Boolean).join("\n\n"); openPanel("miniEditorDrawer"); $("miniEditorText").value = state.helperSourceText; } } catch (error) { text("templateStatus", error.message || "Vorlage konnte nicht geladen werden."); } });
 on("captureScreen", "click", () => { void captureScreen(); });
 on("copyScreenCapture", "click", () => { void copyScreenCapture(); });
 on("useContext", "change", () => {});
@@ -3283,7 +2499,6 @@ window.radimoAgent.onEvent((event) => {
         state.lastAgentResult = chatResult.text;
         state.lastResultInsertText = chatResult.text;
         state.lastResultTask = "proposal";
-        state.lastResultTarget = state.lastChatResultTarget;
         state.lastResultApplied = false;
         state.manualReviewPending = false;
         renderAgentNotes(chatResult.meta);
@@ -3304,32 +2519,23 @@ window.radimoAgent.onEvent((event) => {
   }
   if (event.method === "radimoagent/stderr") helperSetStatus(event.params?.text || "Lokales Signal.", "Hinweis");
 });
-window.radimoAgent.onReady((payload) => { applyFieldAccessCapabilities(payload || {}); applyBackendUi(payload || {}); void refreshConnection(); void loadModels(); void loadClinicSources(); void loadWritingResources(); });
+window.radimoAgent.onReady((payload) => { updateFieldAccessUi(); applyBackendUi(payload || {}); void refreshConnection(); void loadModels(); void loadClinicSources(); void loadWritingResources(); });
 window.radimoAgent.onError((error) => helperSetStatus(error.message || "Lokaler Agent nicht verfügbar.", "Nicht verfügbar"));
 window.radimoAgent.onWorkflowState((workflow) => {
   if (!workflow) return;
   state.workflow = workflow;
-  if (workflow.targetIdentity?.windowHandle && fieldAccessMode() !== "clipboard") {
-    state.focusedTarget = { ...workflow.targetIdentity };
-    state.fieldLocked = true;
-  } else if (workflow.target === "none" || workflow.target === "text") {
-    state.focusedTarget = null;
-    state.fieldLocked = false;
-  }
   if (workflow.fieldType) setHelperFieldType(workflow.fieldType);
   renderMiniTarget();
   setMiniInsertState();
 });
 window.radimoAgent.onToggleDictation((payload) => { void miniStartDictation(payload?.point || null); });
 window.radimoAgent.onCaptureFocusedField((payload) => { void miniCaptureField({ point: payload?.point || null }); });
-window.radimoAgent.getWorkflowState().then((workflow) => { state.workflow = workflow; if (workflow?.targetIdentity?.windowHandle && fieldAccessMode() !== "clipboard") { state.focusedTarget = { ...workflow.targetIdentity }; state.fieldLocked = true; } renderMiniTarget(); }).catch(() => {});
+window.radimoAgent.getWorkflowState().then((workflow) => { state.workflow = workflow; renderMiniTarget(); }).catch(() => {});
 
 applyGermanUi();
 loadCubeMode();
 loadActionSettings();
-loadFieldMapperPreferences();
-loadFieldAccessPreference();
-void loadFieldMapperConfig();
+updateFieldAccessUi();
 renderActionVisibility();
 syncMiniConfigPanel();
 setReviewMode("text");

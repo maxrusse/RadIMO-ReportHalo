@@ -7,15 +7,6 @@ const { findAdjacentContext, formatContextReport } = require("./context-finder")
 const fs = require("node:fs/promises");
 const crypto = require("node:crypto");
 const { configure, getLogPath, log, readLog } = require("./logger");
-const { blockedFieldAccessResult, experimentalUiaEnabled, unavailableFieldAccessResult } = require("./field-access-policy");
-const {
-  buildFieldMapReport,
-  loadFieldMapperProfile,
-  normalizeFieldMapperProfile,
-  parseRuleText,
-  profileSummary: fieldMapperProfileSummary,
-  saveFieldMapperProfile,
-} = require("./windows-field-mapper");
 const { parseProxyInput, proxyEndpointFromRules } = require("./windows-proxy");
 const { readReferencePack, readReferenceUrl } = require("./reference-library");
 const { clinicSummary, formatClinicSourcePrompt, loadClinicSourceLibrary, readClinicSource, saveClinicRoot } = require("./clinic-source-library");
@@ -30,7 +21,6 @@ const {
 } = require("./report-writing-guidance");
 const { loadTemplateLibrary, templateSummary } = require("./template-library");
 const { createWorkflowStore } = require("./workflow-state");
-const { restoreClipboard, snapshotClipboard } = require("./clipboard-transfer");
 const { DEFAULT_TRANSCRIPTION_MODEL, probeTranscriptionModel, transcribeAudio, transcribeAzureAudio, validateApiKey } = require("./openai-audio");
 const {
   API_PROVIDERS,
@@ -73,7 +63,6 @@ let snipCompleting = false;
 let guidanceLoaded = null;
 let templateLibraryLoaded = null;
 let clinicSourceLibraryLoaded = null;
-let fieldMapperProfileLoaded = null;
 let helperBoundsSaveTimer = null;
 let helperCubeModeSaveTimer = null;
 const pendingCapturePaths = new Set();
@@ -114,23 +103,6 @@ let helperPanelVertical = "bottom";
 let helperPanelRequestEpoch = "";
 let latestHelperPanelRequest = 0;
 let quitting = false;
-let experimentalWindowsFieldBridge = null;
-
-function loadExperimentalWindowsFieldBridge(operation) {
-  if (!experimentalUiaEnabled()) return null;
-  if (experimentalWindowsFieldBridge) return experimentalWindowsFieldBridge;
-  try {
-    // Keep the UIA/PowerShell diagnostic bridge out of the normal startup
-    // dependency graph. It is packaged only with the separate diagnostic
-    // build and loaded only for an explicitly opted-in developer session.
-    experimentalWindowsFieldBridge = require(path.join(__dirname, "windows-field-bridge.js"));
-    return experimentalWindowsFieldBridge;
-  } catch (error) {
-    log("WARN", "Experimental UIA bridge unavailable", { operation, message: error?.message || String(error) });
-    return null;
-  }
-}
-
 function openAICredentialPath() {
   return path.join(app.getPath("userData"), "secrets", "openai-api-key.bin");
 }
@@ -315,11 +287,6 @@ async function ensureClinicSourceLibrary({ reload = false } = {}) {
   return clinicSourceLibraryLoaded;
 }
 
-async function ensureFieldMapperProfile({ reload = false } = {}) {
-  if (!fieldMapperProfileLoaded || reload) fieldMapperProfileLoaded = loadFieldMapperProfile(app.getPath("userData"));
-  return fieldMapperProfileLoaded;
-}
-
 async function applyGuidance(options = {}) {
   const loaded = await ensureGuidanceProfile();
   const writingProfile = options.writingProfile || "off";
@@ -490,7 +457,7 @@ function sendToRenderer(channel, payload) {
 }
 
 function runtimeCapabilities() {
-  return { experimentalUia: experimentalUiaEnabled() };
+  return { fieldAccess: "clipboard" };
 }
 
 const SNIP_IPC_CHANNELS = new Set(["snip:finish", "snip:cancel"]);
@@ -640,37 +607,6 @@ async function createHelperWindow() {
     throw error;
   }
   return helperWindowRef;
-}
-
-function helperNativeWindowHandle() {
-  try {
-    const value = helperWindowRef?.getNativeWindowHandle();
-    if (!value?.length) return "";
-    return value.length >= 8 ? value.readBigUInt64LE(0).toString() : String(value.readUInt32LE(0));
-  } catch {
-    return "";
-  }
-}
-
-function waitForExternalFocus() {
-  return new Promise((resolve) => setTimeout(resolve, 140));
-}
-
-async function withHelperTemporarilyHidden(task) {
-  const helper = helperWindowRef;
-  if (process.platform !== "win32" || !helper || helper.isDestroyed() || !helper.isVisible()) return task();
-  const wasFocusable = typeof helper.isFocusable === "function" ? helper.isFocusable() : false;
-  helper.setFocusable(false);
-  helper.hide();
-  await waitForExternalFocus();
-  try {
-    return await task();
-  } finally {
-    if (!helper.isDestroyed()) {
-      helper.setFocusable(wasFocusable);
-      helper.showInactive();
-    }
-  }
 }
 
 function normalizeHelperCubeMode(value) {
@@ -1193,160 +1129,6 @@ registerIpcHandler("clipboard:write", (_event, text) => {
   return true;
 });
 registerIpcHandler("clipboard:read", () => clipboard.readText());
-registerIpcHandler("field:read-focused", async (_event, options) => {
-  const request = options || {};
-  const accessMode = request.accessMode;
-  if (accessMode !== "uia" && accessMode !== "clipboard") {
-    const result = blockedFieldAccessResult({ operation: "field-read" });
-    log("WARN", "Focused field capture blocked by policy", { error: result.error });
-    return result;
-  }
-  if (accessMode === "clipboard") {
-    const result = blockedFieldAccessResult({ operation: "field-read", clipboard: true });
-    log("INFO", "Focused field capture left to clipboard workflow", { error: result.error });
-    return result;
-  }
-  if (!experimentalUiaEnabled()) {
-    const result = blockedFieldAccessResult({ operation: "field-read" });
-    log("WARN", "Focused field capture blocked by policy", { error: result.error });
-    return result;
-  }
-  const fieldBridge = loadExperimentalWindowsFieldBridge("field-read");
-  if (!fieldBridge?.readFocusedField) return unavailableFieldAccessResult({ operation: "field-read" });
-  const hasPoint = request.pointX !== "" && request.pointY !== "" && Number.isFinite(Number(request.pointX)) && Number.isFinite(Number(request.pointY));
-  const releaseHelper = request.accessMode !== "clipboard" && !request.windowHandle && !hasPoint;
-  let pointScale = "";
-  if (hasPoint && process.platform === "win32") {
-    try { pointScale = screen.getDisplayNearestPoint({ x: Number(request.pointX), y: Number(request.pointY) }).scaleFactor || ""; } catch { /* display lookup is optional */ }
-  }
-  const run = releaseHelper ? withHelperTemporarilyHidden : async (task) => task();
-  const result = await run(() => fieldBridge.readFocusedField({ ...request, pointScale, helperWindowHandle: helperNativeWindowHandle(), helperProcessId: process.pid }));
-  log(result?.ok ? "INFO" : "WARN", "Focused field capture", {
-    ok: Boolean(result?.ok),
-    strategy: result?.strategy || null,
-    supportsWrite: Boolean(result?.supportsWrite),
-    error: result?.error || null,
-  });
-  return result;
-});
-registerIpcHandler("field:focus-mapped", async (_event, payload) => {
-  const accessMode = payload?.accessMode || payload?.target?.accessMode;
-  if (accessMode !== "uia" && accessMode !== "clipboard") {
-    const result = blockedFieldAccessResult({ operation: "field-focus" });
-    log("WARN", "Mapped field focus blocked by policy", { error: result.error });
-    return result;
-  }
-  if (accessMode === "clipboard") {
-    const result = blockedFieldAccessResult({ operation: "field-focus", clipboard: true });
-    log("INFO", "Mapped field focus left to clipboard workflow", { error: result.error });
-    return result;
-  }
-  if (!experimentalUiaEnabled()) {
-    const result = blockedFieldAccessResult({ operation: "field-focus" });
-    log("WARN", "Mapped field focus blocked by policy", { error: result.error });
-    return result;
-  }
-  const fieldBridge = loadExperimentalWindowsFieldBridge("field-focus");
-  if (!fieldBridge?.focusMappedField) return unavailableFieldAccessResult({ operation: "field-focus" });
-  const result = await fieldBridge.focusMappedField({
-    windowHandle: payload?.windowHandle,
-    target: payload?.target,
-    helperWindowHandle: helperNativeWindowHandle(),
-    helperProcessId: process.pid,
-  });
-  log(result?.ok ? "INFO" : "WARN", "Mapped field focus", {
-    ok: Boolean(result?.ok),
-    verified: Boolean(result?.verified),
-    error: result?.error || null,
-  });
-  return result;
-});
-registerIpcHandler("field:write-focused", async (_event, payload) => {
-  if (!payload || typeof payload.text !== "string") return { ok: false, verified: false, error: "empty-text" };
-  const accessMode = payload.accessMode || payload.target?.accessMode;
-  if (accessMode === "clipboard") {
-    const result = blockedFieldAccessResult({ operation: "field-write", clipboard: true });
-    log("INFO", "Focused field write left to clipboard workflow", { error: result.error });
-    return result;
-  }
-  if (accessMode !== "uia" || !experimentalUiaEnabled()) {
-    const result = blockedFieldAccessResult({ operation: "field-write" });
-    log("WARN", "Focused field write blocked by policy", { error: result.error });
-    return result;
-  }
-  const fieldBridge = loadExperimentalWindowsFieldBridge("field-write");
-  if (!fieldBridge?.writeFocusedField) return unavailableFieldAccessResult({ operation: "field-write" });
-  const previousClipboard = snapshotClipboard(clipboard);
-  clipboard.writeText(payload.text);
-  try {
-    const result = await fieldBridge.writeFocusedField(payload);
-    log(result?.ok ? "INFO" : "WARN", "Focused field write", {
-      ok: Boolean(result?.ok),
-      verified: Boolean(result?.verified),
-      strategy: result?.strategy || null,
-      readable: Boolean(result?.readable),
-      error: result?.error || null,
-    });
-    return result;
-  } finally {
-    restoreClipboard(clipboard, previousClipboard);
-  }
-});
-registerIpcHandler("field-mapper:status", async () => fieldMapperProfileSummary(await ensureFieldMapperProfile(), app.getPath("userData")));
-registerIpcHandler("field-mapper:set-config", async (_event, payload) => {
-  const profile = parseRuleText(payload?.includeText, payload?.excludeText);
-  fieldMapperProfileLoaded = await saveFieldMapperProfile(app.getPath("userData"), profile);
-  log("INFO", "Field mapper profile saved", {
-    includeRules: fieldMapperProfileLoaded.include.length,
-    excludePatterns: fieldMapperProfileLoaded.exclude.length,
-  });
-  return fieldMapperProfileSummary(fieldMapperProfileLoaded, app.getPath("userData"));
-});
-registerIpcHandler("field:scan-window", async (_event, payload) => {
-  const request = payload || {};
-  const accessMode = request.accessMode || request.target?.accessMode;
-  if (accessMode !== "uia" && accessMode !== "clipboard") {
-    const result = blockedFieldAccessResult({ operation: "field-scan" });
-    log("WARN", "Field mapper scan blocked by policy", { error: result.error });
-    return result;
-  }
-  if (accessMode === "clipboard" || !experimentalUiaEnabled()) {
-    const result = blockedFieldAccessResult({ operation: "field-scan", clipboard: accessMode === "clipboard" });
-    log("WARN", "Field mapper scan blocked by policy", { error: result.error });
-    return result;
-  }
-  const fieldBridge = loadExperimentalWindowsFieldBridge("field-scan");
-  if (!fieldBridge?.scanFieldWindow) return unavailableFieldAccessResult({ operation: "field-scan" });
-  const profile = await ensureFieldMapperProfile();
-  const readValues = payload?.readValues !== false;
-  const requestedWindow = request.windowHandle || request.target?.windowHandle || "";
-  const releaseHelper = request.accessMode !== "clipboard" && !requestedWindow;
-  const run = releaseHelper ? withHelperTemporarilyHidden : async (task) => task();
-  const raw = await run(() => fieldBridge.scanFieldWindow({
-    windowHandle: request.windowHandle,
-    target: request.target,
-    helperWindowHandle: helperNativeWindowHandle(),
-    helperProcessId: process.pid,
-    accessMode: request.accessMode,
-    profile,
-    readValues,
-  }));
-  if (!raw?.ok) {
-    log("WARN", "Field mapper scan failed", { error: raw?.error || "unknown", windowHandle: raw?.windowHandle || null });
-    return raw;
-  }
-  const report = buildFieldMapReport(raw, profile, { readValues });
-  log("INFO", "Field mapper scan completed", {
-    processName: report.source.processName || null,
-    processId: report.source.processId || null,
-    scanned: report.diagnostics.scanned,
-    textFields: report.diagnostics.textFields,
-    matchedFields: report.diagnostics.matchedFields,
-    excludedFields: report.diagnostics.excludedFields,
-    readValues,
-  });
-  return report;
-});
 registerIpcHandler("workflow:get", () => workflowStore.get());
 registerIpcHandler("workflow:new-case", (_event, payload) => {
   const result = workflowStore.startCase(payload || {});

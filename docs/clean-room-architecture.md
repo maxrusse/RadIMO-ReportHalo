@@ -1,25 +1,30 @@
 # RadIMO – ReportHalo clean-room architecture
 
-RadIMO – ReportHalo is authored as an independent desktop client. The previous executable is not a source dependency, and no legacy renderer, provider adapter, branding, or automation implementation is imported into this tree.
+ReportHalo is an independent Windows desktop client. It does not import the previous executable, renderer, provider adapter, branding, or foreign-window automation implementation.
 
 ## Boundaries
 
-- `src/main.js` owns the Electron window and safe local file dialogs.
-- `src/preload.js` exposes a deliberately small IPC surface to the renderer.
-- `src/agent-backend.js` selects one model-session adapter at runtime. `src/codex-app-server.js` speaks the local JSON-RPC app-server contract for the subscription build; `src/openai-responses.js` speaks the direct streaming Responses API for the small API build. Neither adapter exposes credentials to the renderer.
-- `src/agent-api-config.js` owns provider/end-point/deployment configuration and encrypted API credentials. `src/usage-budget.js` owns the provisional local token guardrail and clearly marked cost estimate.
-- `src/context-finder.js` is a standalone local-first beta for adjacent report context.
-- `src/windows-field-bridge.js` exposes only the clipboard guard and a developer-only UIA path in `src/windows-safe-field-bridge.js`; normal releases keep that path disabled. Native code injection, keystroke replay, and execution-policy bypasses are not part of the product bridge. The default DMO/RIS source path is explicit clipboard transfer. `src/windows-field-mapper.js` owns the label-pattern profile, exclusion-first matching, parent-container label matching, and structured context serializer.
-- `src/field-mapper-main.js` and its small renderer form the API-free standalone Field Mapper diagnostic build. It has no agent, credential, or network path, is gated by the same experimental UIA policy, and shares the same scanner contract with the integrated app.
-- `src/renderer/` contains one compact Floating Orb and its attached panels; there is no separate desktop workspace window.
-- The primary flow uses the 3×3 Orb and compact right/bottom edge controls. Secondary context, clinic sources, templates, and guidance remain behind the attached context panel.
+- `src/main.js` owns the Electron window, local dialogs, clipboard, and IPC validation.
+- `src/preload.js` exposes the small renderer API. Credentials never enter renderer JavaScript.
+- `src/agent-backend.js` selects the Codex app-server adapter or the direct streaming Responses API adapter.
+- `src/agent-api-config.js` owns OpenAI/Azure endpoint and credential configuration. `src/usage-budget.js` owns provisional local token limits and estimates.
+- `src/context-finder.js` is a local-first adjacent-report context helper. It only reads files explicitly selected by the user.
+- `src/renderer/` contains one compact Cub and its attached panels. There is no second desktop workspace window.
 
-## Source connector decision
+## External text boundary
 
-The beta does not assume a Radcenter API, database, or permission model that is not available in this development workspace. It accepts a file exported from or mounted by the eventual source system. A future connector can replace the file-picker implementation behind the same context report shape after the source endpoint and access rules are confirmed.
+ReportHalo deliberately treats DMO, RIS, Word, and other editors as foreign applications. The generic client does not enumerate their controls, read their accessibility tree, move their focus, simulate keystrokes, or write into them. The supported boundary is explicit text transfer through the clipboard or drag-and-drop:
+
+`select → Ctrl+C → import → review → copy → Ctrl+V`
+
+This avoids guessing which control is a report field and avoids presenting an unverified foreign-app write as successful. A future direct integration would need a vendor-supported target-app/API contract and its own security review.
 
 ## Context report shape
 
-The beta report records the selected anchor, the same-folder natural ordering strategy, requested report sections, neighboring file paths, section-name hints, file sizes, and bounded text previews. Binary files remain references and are not parsed.
+The local context report records the selected anchor, same-folder ordering, requested report sections, neighboring paths, section hints, file sizes, and bounded previews. Binary files remain references and are not parsed.
 
-The Field Mapper report is separate from the file beta and is never started automatically. It records the target process and bounded UI Automation metadata for detected text controls only after an explicit diagnostic action in an experimental session. Configured label rules are matched against accessible names, labels, help text, automation IDs, and parent container names; class names alone are not treated as semantic labels. Exclusions and password controls are removed before values are read. Only matched values appear in named context groups. Unmatched controls retain metadata for local mapping diagnostics but their contents are not returned. A DMO/RIS installation may still expose no stable UIA metadata even though cursor-based dictation works, so the clipboard workflow remains the supported fallback.
+## Text result contract
+
+Non-chat actions return a compact JSON envelope with `text`, `changes`, `unclear`, `logicIssues`, and `medicalIssues`. For correction, writing, and structure, `text` is the complete local replacement block. Assessment keeps the source visible and produces a labelled `Beurteilung: …` addendum. Explanations and safety notes never enter the reusable text block.
+
+The medical gate preserves numbers, units, laterality, anatomy, negations, uncertainty, dates, temporal qualifiers, and recommendations. It flags ambiguity rather than inventing facts. The RIS/editor remains the authoritative record.
