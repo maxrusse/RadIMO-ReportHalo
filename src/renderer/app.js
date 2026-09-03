@@ -106,7 +106,7 @@ const FIELD_MAPPER_DEFAULT_EXCLUDE = [
 ].join("\n");
 const ACTION_PROMPT_DEFAULTS = {
   write: `Formuliere nur den vorhandenen Text klarer. Keine neuen Informationen und keine inhaltlichen Ergänzungen. Gib in text den vollständigen Textblock zurück; er ist für die Ersetzung des aktiven Feldes bestimmt.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
-  correction: `Medizinisches Lektorat. Korrigiere und ersetze nur relevante Rechtschreib-, Grammatik-, Interpunktions- und erkennbare Diktatfehler im vorhandenen Text. Überschriften und OPB, sofern vorhanden, unverändert belassen. Keine neuen Inhalte und keine Bedeutungsänderung. Medizinische oder logische Auffälligkeiten ausschließlich unter dem Text als Hinweise nennen; nicht korrigieren. Gib in text den vollständigen korrigierten Text ohne Zusatzformatierung zurück, möglichst den kompletten Text statt einzelner Ausschnitte. Liste danach nur die tatsächlich vorgenommenen Änderungen auf.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
+  correction: `Medizinisches Lektorat. Korrigiere und ersetze ausschließlich relevante Rechtschreib-, Grammatik-, Interpunktions- und erkennbare Diktatfehler im vorhandenen Text. Überschriften und OPB, sofern vorhanden, unverändert belassen. Keine neuen Inhalte, keine stilistische Umdeutung und keine Bedeutungsänderung. Medizinische oder logische Auffälligkeiten ausschließlich unter dem Text als Hinweise nennen; nicht korrigieren. Gib in text genau einen vollständigen Writing Block mit dem kompletten korrigierten Text ohne Zusatzformatierung zurück, nicht nur einzelne Ausschnitte. Liste danach nur die tatsächlich vorgenommenen Änderungen auf.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
   structure: `Ordne nur den vorhandenen Text besser. Nichts ergänzen und keine fehlenden Bausteine erfinden. Gib in text den vollständigen neu geordneten Textblock zurück; er ist für die Ersetzung des aktiven Feldes bestimmt.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
   assessment: `Fasse nur die vorhandenen Aussagen knapp als Beurteilung. Unsicherheiten und Lücken bleiben sichtbar. Gib in text nur den ergänzenden Inhalt ohne Überschrift zurück; ReportHalo setzt beim Übernehmen die klare Kennzeichnung "Beurteilung: " davor und hängt ihn unterhalb des vorhandenen Textes an.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
   discussion: `Chat: Antworte knapp in 1–4 kurzen Absätzen oder höchstens fünf Stichpunkten. Erkläre, frage nach und diskutiere nur anhand des vorhandenen Textes. Du schreibst nie in ein externes Feld. Wenn der Nutzer ausdrücklich einen korrigierten, umformulierten oder wiederverwendbaren Text verlangt, gib ein JSON-Objekt mit answer, text, changes, unclear, logicIssues und medicalIssues zurück; text ist dann der vollständige Textblock zur späteren Übernahme. Bei reiner Diskussion antworte als normalen kurzen Text.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
@@ -127,10 +127,6 @@ const FIELD_ACCESS_MODES = {
   uia: {
     label: "UIA-Feldzugriff · testen",
     description: "Nur auf ausdrücklichen Klick: der Helper wird kurz ausgeblendet und liest ausschließlich ValuePattern/TextPattern des fokussierten UIA-Elements. Nicht jedes DMO-/RIS-Feld stellt diesen Zugriff bereit.",
-  },
-  compatibility: {
-    label: "Kompatibilität · legacy",
-    description: "Alte Native-/PowerShell-Automation. Kann durch Defender/Anti-Ransomware blockiert werden; nur bei Bedarf einschalten.",
   },
 };
 const panelLayoutEpoch = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -1098,7 +1094,7 @@ function recentDiscussionContext() {
 
 const TEXT_ACTION_OUTPUT_CONTRACT = [
   "FELDAKTION: Gib ausschließlich das vollständige JSON-Ergebnis im vorgegebenen Schema zurück.",
-  "text ist bei Lektorat, Formulierung und Strukturierung der vollständige Ersatztext für das lokale Textfeld. Bei Beurteilung ist text ausschließlich der ergänzende Inhalt; die Oberfläche kennzeichnet ihn als Beurteilung und hängt ihn unterhalb an. Keine Markdown-Zäune, keine Einleitung und keine Änderungslisten innerhalb von text. changes nennt nur tatsächlich vorgenommene Sprach-, Rechtschreib-, Grammatik- oder Lektoratsänderungen; unclear, logicIssues und medicalIssues sind kurze Hinweise zum Ausgangstext und werden nicht geändert. Keine neuen medizinischen Fakten.",
+  "text ist bei Lektorat, Formulierung und Strukturierung genau ein vollständiger Writing Block und der vollständige Ersatztext für das lokale Textfeld. Bei Beurteilung ist text ausschließlich der ergänzende Inhalt; die Oberfläche kennzeichnet ihn als Beurteilung und hängt ihn unterhalb an. Keine Markdown-Zäune, keine Einleitung und keine Änderungslisten innerhalb von text. changes nennt nur tatsächlich vorgenommene Sprach-, Rechtschreib-, Grammatik- oder Lektoratsänderungen; unclear, logicIssues und medicalIssues sind kurze Hinweise zum Ausgangstext und werden nicht geändert. Keine neuen medizinischen Fakten.",
 ].join(" ");
 
 const PROPOSAL_OUTPUT_CONTRACT = [
@@ -1532,8 +1528,8 @@ function resultTaskLabel(task) {
   return { correction: "Lektorat", write: "Formulierung", structure: "Textordnung", assessment: "Beurteilung", proposal: "Vorschlag" }[task] || "Bearbeitung";
 }
 
-function formatResultMeta(task, meta, { activeTarget = false, transferred = false, verified = false, replaced = false, appended = false, manualReview = false, unverified = false } = {}) {
-  const status = appended && verified ? "Die Beurteilung wurde unterhalb des vorhandenen Textes ergänzt." : replaced && verified ? "Der vollständige Text wurde im aktiven Feld ersetzt." : manualReview ? "Das aktive Feld wurde nicht verändert. Der Entwurf wartet auf deine Prüfung im Editor." : unverified ? "Die Übertragung wurde gesendet, aber das RIS-Feld lässt sich nicht zurücklesen. Der Ergebnistext liegt in der Zwischenablage; bitte im RIS prüfen." : transferred ? "Die Übertragung wurde versucht, aber das Zielfeld ist noch nicht verifiziert." : activeTarget ? "Das aktive Feld wurde nicht verändert, weil es nicht verifiziert werden konnte." : "Kein aktives externes Feld wurde verändert.";
+function formatResultMeta(task, meta, { activeTarget = false, transferred = false, verified = false, replaced = false, appended = false, manualReview = false, unverified = false, clipboardPrepared = false } = {}) {
+  const status = appended && verified ? "Die Beurteilung wurde unterhalb des vorhandenen Textes ergänzt." : replaced && verified ? "Der vollständige Text wurde im aktiven Feld ersetzt." : manualReview ? "Das aktive Feld wurde nicht verändert. Der Entwurf wartet auf deine Prüfung im Editor." : clipboardPrepared ? (appended ? "Die Beurteilung liegt als Paste-Vorlage in der Zwischenablage; im RIS prüfen und am passenden Cursor einfügen." : "Der vollständige Ergebnistext liegt als Paste-Vorlage in der Zwischenablage; im RIS prüfen und bewusst einfügen.") : unverified ? "Die Übertragung wurde gesendet, aber das RIS-Feld lässt sich nicht zurücklesen. Der Ergebnistext liegt in der Zwischenablage; bitte im RIS prüfen." : transferred ? "Die Übertragung wurde versucht, aber das Zielfeld ist noch nicht verifiziert." : activeTarget ? "Das aktive Feld wurde nicht verändert, weil es nicht verifiziert werden konnte." : "Kein aktives externes Feld wurde verändert.";
   const lines = [`${resultTaskLabel(task)} abgeschlossen. ${status}`];
   const sections = [
     ["Geändert", meta.changes],
@@ -1641,7 +1637,21 @@ function reviewText() {
 async function insertTextIntoField(value, { isDictation = false, automatic = false, append = false, targetOverride = null, sourceText = null } = {}) {
   const textToInsert = String(value || "").trim();
   const target = targetOverride || state.focusedTarget;
-  if (!textToInsert || !target?.windowHandle || !state.fieldLocked) {
+  if (!textToInsert) {
+    helperSetStatus("Kein Ergebnis zum Einsetzen vorhanden.", "Leer");
+    return null;
+  }
+  if (!target?.windowHandle && !targetOverride && fieldAccessMode() === "clipboard") {
+    try {
+      await window.radimoAgent.writeClipboard(textToInsert);
+      helperSetStatus(append ? "Beurteilung kopiert. Im RIS/DMO prüfen und am passenden Cursor mit Strg+V einfügen." : "Vollständiger Ergebnistext kopiert. Im RIS/DMO prüfen und mit Strg+V einfügen.", "Kopiert");
+      return { ok: true, verified: false, copied: true };
+    } catch (error) {
+      helperSetStatus(error.message || "Ergebnis konnte nicht in die Zwischenablage kopiert werden.", "Prüfung nötig");
+      return null;
+    }
+  }
+  if (!target?.windowHandle || !state.fieldLocked) {
     helperSetStatus("Kein gesichertes Arbeitsfeld für dieses Ergebnis vorhanden.", "Feld fehlt");
     return null;
   }
@@ -1823,15 +1833,17 @@ async function applyCompletedAgentResult() {
   const targetUnchanged = Boolean(operationTarget?.windowHandle && state.fieldLocked && sameTargetIdentity(state.focusedTarget, operationTarget));
   const automaticTransferText = appended ? generatedText : result;
   if (targetUnchanged && !manualReview) response = await insertTextIntoField(automaticTransferText, { automatic: true, append: appended, targetOverride: operationTarget, sourceText: state.lastSourceText });
+  if (!targetUnchanged && !manualReview && !proposal && fieldAccessMode() === "clipboard" && automaticTransferText) response = await insertTextIntoField(automaticTransferText, { append: appended, sourceText: state.lastSourceText });
   if (manualReview) {
     state.manualReviewPending = true;
     openResultEditor(result);
   }
-  const transferred = Boolean(response?.ok);
+  const clipboardPrepared = response?.copied === true;
+  const transferred = Boolean(response?.ok && !clipboardPrepared);
   const verified = transferred && response.verified === true;
   const unverified = transferred && !verified;
   if (!manualReview && operationTarget?.windowHandle && !targetUnchanged) helperSetStatus("Das Arbeitsfeld wurde während der Anfrage geändert. Nichts wurde übertragen.", "Zielfeld geändert");
-  if (!manualReview && !response?.ok && !operationTarget?.windowHandle && !(state.focusedTarget?.windowHandle && state.fieldLocked)) helperSetStatus("Ergebnis bereit. Externes Arbeitsfeld aktivieren.", "Feld fehlt");
+  if (!manualReview && !response?.ok && !operationTarget?.windowHandle && fieldAccessMode() !== "clipboard" && !(state.focusedTarget?.windowHandle && state.fieldLocked)) helperSetStatus("Ergebnis bereit. Externes Arbeitsfeld aktivieren.", "Feld fehlt");
   if (proposal) appendChatProposal(result);
   else appendChatMessage("assistant", formatResultMeta(task, meta, {
       activeTarget: targetUnchanged,
@@ -1841,6 +1853,7 @@ async function applyCompletedAgentResult() {
       replaced: verified && !appended,
       appended: verified && appended,
       manualReview,
+      clipboardPrepared,
     }));
   if (transferred) {
     void window.radimoAgent.addWorkflowArtifact({
@@ -2264,7 +2277,7 @@ async function autoSelectMappedField({ reportOverride = null } = {}) {
     const mappedTarget = fieldMapperTargetFromField(report, field, rule);
     await window.radimoAgent.setHelperFocusable(false);
     try {
-      const diagnosticAccessMode = fieldAccessMode() === "compatibility" ? "compatibility" : "uia";
+      const diagnosticAccessMode = "uia";
       const focused = await window.radimoAgent.focusMappedField({ windowHandle: mappedTarget.windowHandle, target: { ...mappedTarget, accessMode: diagnosticAccessMode } });
       if (!focused?.ok || !focused.verified) {
         helperSetStatus(`${rule.label}-Feld gefunden, aber der Fokus konnte nicht sicher bestätigt werden.`, "Prüfung nötig");
@@ -2306,6 +2319,12 @@ async function autoSelectMappedField({ reportOverride = null } = {}) {
 
 async function scanFieldMapper({ readValues = true, autoSelect = false } = {}) {
   if (state.fieldMapperBusy) return;
+  if (fieldAccessMode() === "clipboard") {
+    const message = "Zwischenablage-Modus aktiv. Keine UIA-Diagnose gestartet. Für die optionale Feldsuche zuerst „UIA-Feldzugriff · testen“ wählen.";
+    text("fieldMapperStatus", message);
+    helperSetStatus(message, "Zwischenablage empfohlen");
+    return null;
+  }
   state.fieldMapperBusy = true;
   const button = $(readValues ? "scanFieldMapper" : "inspectFieldMapper");
   if (button) button.disabled = true;
@@ -2317,7 +2336,7 @@ async function scanFieldMapper({ readValues = true, autoSelect = false } = {}) {
     const report = await window.radimoAgent.scanFieldWindow({
       windowHandle: target?.windowHandle || "",
       target,
-      accessMode: fieldAccessMode() === "compatibility" ? "compatibility" : "uia",
+      accessMode: "uia",
       readValues,
     });
     if (!report?.ok) {

@@ -162,6 +162,7 @@ test("function prompts are user-editable and preserve reusable chat text", async
   const app = await fs.readFile(path.join(__dirname, "..", "src", "renderer", "app.js"), "utf8");
   const renderer = await fs.readFile(path.join(__dirname, "..", "src", "renderer", "index.html"), "utf8");
   const audio = await fs.readFile(path.join(__dirname, "..", "src", "openai-audio.js"), "utf8");
+  const medicalGate = await fs.readFile(path.join(__dirname, "..", "src", "medical-gate.js"), "utf8");
   assert.match(app, /ACTION_PROMPT_DEFAULTS/);
   assert.match(app, /ACTION_SETTINGS_STORAGE_KEY = "radimoagent\.action-settings\.v2"/);
   assert.match(app, /TEXT_BLOCK_TOKEN = "\{\{TEXT_BLOCK\}\}"/);
@@ -177,6 +178,10 @@ test("function prompts are user-editable and preserve reusable chat text", async
   assert.match(app, /sourceText: state\.lastSourceText/);
   assert.match(app, /const clipboardFallback = fieldAccessMode\(\) === "clipboard"/);
   assert.match(app, /Diktat kopiert\. Im RIS\/DMO am Cursor mit Strg\+V einfügen/);
+  assert.match(app, /Vollständiger Ergebnistext kopiert\. Im RIS\/DMO prüfen und mit Strg\+V einfügen/);
+  assert.match(app, /clipboardPrepared/);
+  assert.match(app, /genau einen vollständigen Writing Block/);
+  assert.match(medicalGate, /complete corrected text as one Writing Block/);
   assert.match(app, /reviewMode: "text"/);
   assert.match(renderer, /Vollständiger Funktionsprompt/);
   assert.match(renderer, /id="miniConfigPrompt"[^>]*maxlength="8000"/);
@@ -238,7 +243,8 @@ test("field mapper is available in the integrated and standalone Windows builds"
   assert.match(main, /clipboard:read/);
   assert.match(main, /getCursorScreenPoint/);
   assert.match(main, /withHelperTemporarilyHidden/);
-  assert.match(bridge, /RADIMO_FIELD_INSERT_AT_CURSOR/);
+  assert.doesNotMatch(bridge, /user32|ExecutionPolicy|SendKeys|Add-Type/i);
+  assert.match(bridge, /clipboard-source-required/);
   assert.match(safeBridge, /SAFE_READ_POWERSHELL/);
   assert.match(safeBridge, /SAFE_WRITE_POWERSHELL/);
   assert.match(safeBridge, /List\[System\.Object\]/);
@@ -249,7 +255,7 @@ test("field mapper is available in the integrated and standalone Windows builds"
   assert.doesNotMatch(safeBridge, /LegacyIAccessiblePattern/);
   assert.doesNotMatch(safeBridge, /"-ExecutionPolicy"/);
   assert.doesNotMatch(safeBridge, /Add-Type @'/);
-  assert.match(bridge, /actualTextBase64/);
+  assert.match(bridge, /writeSafeFocusedField/);
   assert.match(app, /insertAtCursor/);
   assert.match(app, /readFocusedField\(\{[\s\S]*?vollständige Feldinhalt/);
   assert.match(renderer, /scanFieldMapper/);
@@ -260,6 +266,7 @@ test("field mapper is available in the integrated and standalone Windows builds"
   assert.match(renderer, /miniReviewNotes/);
   assert.match(app, /transferNeedsReview/);
   assert.match(app, /RIS-Übertragung wurde gesendet/);
+  assert.match(app, /Zwischenablage-Modus aktiv\. Keine UIA-Diagnose gestartet/);
   assert.match(app, /OPB/);
   assert.match(styles, /target-drop-pulse/);
   assert.match(styles, /\.mini-target-cell\.is-auto-target/);

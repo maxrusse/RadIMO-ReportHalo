@@ -265,25 +265,33 @@ function Element-Text($element) {
   } catch { }
   return [pscustomobject]@{ available = $false; text = $null; pattern = $null; writable = $false }
 }
+function Element-Matches($element, [string]$runtimeId, [string]$automationId, [string]$controlType, [string]$name) {
+  try {
+    $current = $element.Current
+    if ($runtimeId) { return ((Runtime-Id $element) -eq $runtimeId -and (!$controlType -or $current.ControlType.ProgrammaticName -eq $controlType)) }
+    if ($automationId) { return ($current.AutomationId -eq $automationId -and (!$controlType -or $current.ControlType.ProgrammaticName -eq $controlType)) }
+    if ($name) { return ($current.Name -eq $name -and (!$controlType -or $current.ControlType.ProgrammaticName -eq $controlType)) }
+    if ($controlType) { return ($current.ControlType.ProgrammaticName -eq $controlType) }
+  } catch { }
+  return $false
+}
 function Hash-Text([string]$value) {
   $sha = [System.Security.Cryptography.SHA256]::Create()
   try { return [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($value))).Replace('-', '').ToLowerInvariant() } finally { $sha.Dispose() }
 }
 function Find-TargetElement($root, [string]$runtimeId, [string]$automationId, [string]$controlType, [string]$name, [Int64]$controlWindow) {
+  if ($null -eq $root) { return $null }
+  $elements = New-Object 'System.Collections.Generic.List[System.Object]'
+  [void]$elements.Add($root)
+  foreach ($candidate in @($root.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition))) { [void]$elements.Add($candidate) }
+  foreach ($candidate in $elements.ToArray()) {
+    if (Element-Matches $candidate $runtimeId $automationId $controlType $name) { return $candidate }
+  }
   if ($controlWindow -gt 0) {
     try {
       $fromHandle = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]::new($controlWindow))
-      if ($null -ne $fromHandle) { return $fromHandle }
-    } catch { }
-  }
-  if ($null -eq $root) { return $null }
-  $all = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
-  foreach ($candidate in @($all)) {
-    try {
-      $current = $candidate.Current
-      if ($runtimeId -and (Runtime-Id $candidate) -eq $runtimeId) { return $candidate }
-      if ($automationId -and $current.AutomationId -eq $automationId -and (!$controlType -or $current.ControlType.ProgrammaticName -eq $controlType)) { return $candidate }
-      if (-not $automationId -and $name -and $current.Name -eq $name -and (!$controlType -or $current.ControlType.ProgrammaticName -eq $controlType)) { return $candidate }
+      if ($null -ne $fromHandle -and (Element-Matches $fromHandle $runtimeId $automationId $controlType $name)) { return $fromHandle }
+      if ($null -ne $fromHandle -and -not $runtimeId -and -not $automationId -and -not $name -and -not $controlType) { return $fromHandle }
     } catch { }
   }
   return $null

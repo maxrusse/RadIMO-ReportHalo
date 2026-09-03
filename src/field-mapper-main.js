@@ -54,6 +54,8 @@ async function runScan({ readValues = false, windowHandle = "" } = {}) {
   const profile = await ensureProfile();
   const requestedWindow = windowHandle === null ? "" : String(windowHandle || lastTargetWindowHandle || "");
   const releaseMapper = !requestedWindow && mapperWindow && !mapperWindow.isDestroyed() && mapperWindow.isVisible();
+  const wasFocusable = releaseMapper && typeof mapperWindow.isFocusable === "function" ? mapperWindow.isFocusable() : false;
+  if (releaseMapper) mapperWindow.setFocusable(false);
   if (releaseMapper) mapperWindow.hide();
   if (releaseMapper) await waitForExternalFocus();
   let raw;
@@ -67,7 +69,10 @@ async function runScan({ readValues = false, windowHandle = "" } = {}) {
       readValues,
     });
   } finally {
-    if (releaseMapper && mapperWindow && !mapperWindow.isDestroyed()) mapperWindow.show();
+    if (releaseMapper && mapperWindow && !mapperWindow.isDestroyed()) {
+      mapperWindow.setFocusable(wasFocusable);
+      mapperWindow.showInactive();
+    }
   }
   if (!raw?.ok) return raw;
   if (raw.windowHandle) lastTargetWindowHandle = String(raw.windowHandle);
