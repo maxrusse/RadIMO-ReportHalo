@@ -252,6 +252,7 @@ function safeFieldSummary(field, windowHandle = "") {
     isPassword: field?.isPassword === true,
     supportsValue: field?.supportsValue === true,
     supportsText: field?.supportsText === true,
+    readStrategy: cleanText(field?.readStrategy, 80),
     hasValue: typeof field?.value === "string" && Boolean(field.value.trim()),
     valueChars: typeof field?.value === "string" ? field.value.length : Number(field?.valueChars) || 0,
     windowHandle: String(field?.windowHandle || windowHandle || "").slice(0, 32),
@@ -297,6 +298,8 @@ function buildFieldMapReport(scan, profileValue, { readValues = false } = {}) {
     truncated: Boolean(scan?.diagnostics?.truncated),
     durationMs: Number(scan?.diagnostics?.durationMs) || 0,
     readValues: Boolean(readValues),
+    strategy: cleanText(scan?.diagnostics?.strategy, 80),
+    patterns: cleanText(scan?.diagnostics?.patterns, 180),
   };
   const report = {
     ok: scan?.ok !== false,

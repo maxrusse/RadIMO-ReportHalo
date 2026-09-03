@@ -16,6 +16,10 @@ let profileLoaded = null;
 let lastTargetWindowHandle = "";
 let quitting = false;
 
+function waitForExternalFocus() {
+  return new Promise((resolve) => setTimeout(resolve, 140));
+}
+
 function nativeWindowHandle() {
   try {
     const value = mapperWindow?.getNativeWindowHandle();
@@ -49,13 +53,22 @@ function send(channel, payload) {
 async function runScan({ readValues = false, windowHandle = "" } = {}) {
   const profile = await ensureProfile();
   const requestedWindow = windowHandle === null ? "" : String(windowHandle || lastTargetWindowHandle || "");
-  const raw = await scanFieldWindow({
-    windowHandle: requestedWindow,
-    helperWindowHandle: nativeWindowHandle(),
-    accessMode: "uia",
-    profile,
-    readValues,
-  });
+  const releaseMapper = !requestedWindow && mapperWindow && !mapperWindow.isDestroyed() && mapperWindow.isVisible();
+  if (releaseMapper) mapperWindow.hide();
+  if (releaseMapper) await waitForExternalFocus();
+  let raw;
+  try {
+    raw = await scanFieldWindow({
+      windowHandle: requestedWindow,
+      helperWindowHandle: nativeWindowHandle(),
+      helperProcessId: process.pid,
+      accessMode: "uia",
+      profile,
+      readValues,
+    });
+  } finally {
+    if (releaseMapper && mapperWindow && !mapperWindow.isDestroyed()) mapperWindow.show();
+  }
   if (!raw?.ok) return raw;
   if (raw.windowHandle) lastTargetWindowHandle = String(raw.windowHandle);
   return buildFieldMapReport(raw, profile, { readValues });

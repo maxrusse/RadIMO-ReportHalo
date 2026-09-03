@@ -21,15 +21,20 @@ function Runtime-Id($element) {
 function Window-Ancestor($element) {
   $walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
   $currentElement = $element
-  $best = $null
+  $bestWindow = $null
+  $bestWithHandle = $null
   for ($depth = 0; $depth -lt 64 -and $null -ne $currentElement; $depth++) {
     try {
       $current = $currentElement.Current
-      if ($current.ControlType.ProgrammaticName -eq 'ControlType.Window') { $best = $currentElement }
+      $nativeHandle = 0
+      try { $nativeHandle = [int64]$current.NativeWindowHandle } catch { }
+      if ($nativeHandle -gt 0) { $bestWithHandle = $currentElement }
+      if ($current.ControlType.ProgrammaticName -eq 'ControlType.Window') { $bestWindow = $currentElement }
     } catch { }
     try { $currentElement = $walker.GetParent($currentElement) } catch { break }
   }
-  return $best
+  if ($null -ne $bestWindow) { return $bestWindow }
+  return $bestWithHandle
 }
 function Requested-Int64([string]$name) {
   $value = 0
@@ -37,7 +42,53 @@ function Requested-Int64([string]$name) {
   if ($raw) { [Int64]::TryParse($raw, [ref]$value) | Out-Null }
   return $value
 }
-function Focused-Or-PointElement {
+function Nearby-Label($element) {
+  $current = $null
+  try { $current = $element.Current } catch { return '' }
+  try {
+    if ($null -ne $current.LabeledBy) {
+      $label = Clean ($current.LabeledBy.Current.Name) 240
+      if ($label) { return $label }
+    }
+  } catch { }
+  $walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
+  $parent = $null
+  try { $parent = $walker.GetParent($element) } catch { $parent = $null }
+  if ($null -eq $parent) { return '' }
+  try {
+    $children = @($parent.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition))
+    $elementId = Runtime-Id $element
+    $index = -1
+    for ($childIndex = 0; $childIndex -lt $children.Count; $childIndex++) {
+      if ((Runtime-Id $children[$childIndex]) -eq $elementId) { $index = $childIndex; break }
+    }
+    for ($childIndex = $index - 1; $childIndex -ge [Math]::Max(0, $index - 3); $childIndex--) {
+      $sibling = $children[$childIndex]
+      $siblingCurrent = $sibling.Current
+      $siblingType = [string]$siblingCurrent.ControlType.ProgrammaticName
+      $siblingName = Clean $siblingCurrent.Name 240
+      if ($siblingName -and $siblingType -match '(?i)Text|Header|Group') { return $siblingName }
+    }
+  } catch { }
+  return ''
+}
+function Add-Candidate($list, $element) {
+  if ($null -eq $element) { return }
+  $runtimeId = Runtime-Id $element
+  foreach ($existing in $list.ToArray()) {
+    if ($runtimeId -and (Runtime-Id $existing) -eq $runtimeId) { return }
+  }
+  [void]$list.Add($element)
+}
+function Add-CandidateChain($list, $element) {
+  $walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
+  $current = $element
+  for ($depth = 0; $depth -lt 10 -and $null -ne $current; $depth++) {
+    Add-Candidate $list $current
+    try { $current = $walker.GetParent($current) } catch { break }
+  }
+}
+function Point-Candidates($list) {
   $x = 0.0
   $y = 0.0
   $pointOk = $false
@@ -46,17 +97,27 @@ function Focused-Or-PointElement {
       $pointOk = [double]::TryParse($env:RADIMO_FIELD_POINT_X, [ref]$x) -and [double]::TryParse($env:RADIMO_FIELD_POINT_Y, [ref]$y)
     }
   } catch { $pointOk = $false }
-  if ($pointOk -and $x -ge 0 -and $y -ge 0) {
-    try { return [System.Windows.Automation.AutomationElement]::FromPoint([System.Windows.Point]::new($x, $y)) } catch { }
+  if (-not $pointOk) { return }
+  $points = New-Object 'System.Collections.Generic.List[System.Object]'
+  [void]$points.Add(@($x, $y))
+  $scale = 1.0
+  try { if ($env:RADIMO_FIELD_POINT_SCALE) { [double]::TryParse($env:RADIMO_FIELD_POINT_SCALE, [ref]$scale) | Out-Null } } catch { $scale = 1.0 }
+  if ($scale -gt 0.5 -and $scale -lt 4.0 -and [Math]::Abs($scale - 1.0) -gt 0.01) {
+    [void]$points.Add(@($x * $scale, $y * $scale))
+    [void]$points.Add(@($x / $scale, $y / $scale))
   }
+  foreach ($point in $points.ToArray()) {
+    try { Add-CandidateChain $list ([System.Windows.Automation.AutomationElement]::FromPoint([System.Windows.Point]::new([double]$point[0], [double]$point[1]))) } catch { }
+  }
+}
+function Focused-Candidates($list) {
   for ($attempt = 0; $attempt -lt 3; $attempt++) {
     try {
       $element = [System.Windows.Automation.AutomationElement]::FocusedElement
-      if ($null -ne $element) { return $element }
+      if ($null -ne $element) { Add-CandidateChain $list $element; return }
     } catch { }
     Start-Sleep -Milliseconds 45
   }
-  return $null
 }
 function Element-Text($element, [bool]$selectionOnly = $false) {
   $valuePattern = $null
@@ -98,9 +159,10 @@ function Element-Info($element, [Int64]$requestedWindow = 0) {
   try { $controlWindow = [int64]$current.NativeWindowHandle } catch { $controlWindow = 0 }
   $window = 0
   try { if ($null -ne $ancestorCurrent) { $window = [int64]$ancestorCurrent.NativeWindowHandle } } catch { $window = 0 }
+  if ($window -le 0) { $window = $controlWindow }
   if ($window -le 0 -and $requestedWindow -gt 0) { $window = $requestedWindow }
   $labeledBy = ''
-  try { if ($null -ne $current.LabeledBy) { $labeledBy = Clean $current.LabeledBy.Current.Name 240 } } catch { $labeledBy = '' }
+  try { $labeledBy = Nearby-Label $element } catch { $labeledBy = '' }
   $runtimeId = Runtime-Id $element
   return [ordered]@{
     windowHandle = $window
@@ -117,7 +179,7 @@ function Element-Info($element, [Int64]$requestedWindow = 0) {
     helpText = Clean $current.HelpText 240
     className = Clean $current.ClassName 180
     frameworkId = Clean $current.FrameworkId 80
-    controlType = Clean $current.ControlType.ProgrammaticName 120
+    controlType = Clean ($current.ControlType.ProgrammaticName) 120
     isEnabled = [bool]$current.IsEnabled
     isOffscreen = [bool]$current.IsOffscreen
     isPassword = [bool]$current.IsPassword
@@ -127,20 +189,34 @@ function Read-Focused {
   $requestedWindow = Requested-Int64 'RADIMO_FIELD_EXPECTED_WINDOW'
   $requestedProcess = Requested-Int64 'RADIMO_FIELD_EXPECTED_PROCESS'
   $helperWindow = Requested-Int64 'RADIMO_HELPER_WINDOW'
-  $element = Focused-Or-PointElement
-  if ($null -eq $element) { Emit @{ ok = $false; error = 'no-focused-element'; accessibility = 'uia' }; return }
-  try { $info = Element-Info $element $requestedWindow } catch { Emit @{ ok = $false; error = 'focused-element-unavailable'; accessibility = 'uia' }; return }
-  if ($helperWindow -gt 0 -and $info.windowHandle -eq $helperWindow) { Emit @{ ok = $false; error = 'helper-focused'; accessibility = 'uia'; windowHandle = $info.windowHandle }; return }
-  if ($requestedWindow -gt 0 -and $info.windowHandle -ne $requestedWindow) { Emit @{ ok = $false; error = 'target-window-changed'; accessibility = 'uia'; expectedWindow = $requestedWindow; actualWindow = $info.windowHandle }; return }
-  if ($requestedProcess -gt 0 -and $info.processId -ne $requestedProcess) { Emit @{ ok = $false; error = 'target-process-changed'; accessibility = 'uia'; processId = $info.processId }; return }
   $selectionOnly = $env:RADIMO_FIELD_SELECTION_ONLY -eq 'true'
-  $read = Element-Text $element $selectionOnly
-  if (-not $read.available) {
-    Emit (@{ ok = $false; error = $(if ($read.error) { $read.error } else { 'accessibility-unavailable' }); accessibility = 'not-exposed'; readable = $false; supportsWrite = $read.supportsWrite; strategy = $read.strategy } + $info)
+  $helperProcess = Requested-Int64 'RADIMO_HELPER_PROCESS_ID'
+  $candidates = New-Object 'System.Collections.Generic.List[System.Object]'
+  Point-Candidates $candidates
+  Focused-Candidates $candidates
+  if ($candidates.Count -eq 0) { Emit @{ ok = $false; error = 'no-focused-element'; accessibility = 'uia' }; return }
+  $selectionFailure = $null
+  $helperSeen = $false
+  foreach ($element in $candidates.ToArray()) {
+    try { $info = Element-Info $element $requestedWindow } catch { continue }
+    if ($helperWindow -gt 0 -and $info.windowHandle -eq $helperWindow) { $helperSeen = $true; if ($null -eq $selectionFailure) { $selectionFailure = $info }; continue }
+    if ($helperProcess -gt 0 -and $info.processId -eq $helperProcess) { $helperSeen = $true; if ($null -eq $selectionFailure) { $selectionFailure = $info }; continue }
+    if ($requestedWindow -gt 0 -and $info.windowHandle -ne $requestedWindow) { continue }
+    if ($requestedProcess -gt 0 -and $info.processId -ne $requestedProcess) { continue }
+    $read = Element-Text $element $selectionOnly
+    if (-not $read.available) {
+      if ($read.error -eq 'no-selection' -and $null -eq $selectionFailure) { $selectionFailure = $info }
+      continue
+    }
+    $fieldLike = $read.strategy -eq 'ValuePattern' -or $info.controlType -match '(?i)Edit|Document|ComboBox|Custom'
+    if (-not $fieldLike) { continue }
+    $textBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$read.text))
+    Emit (@{ ok = $true; textBase64 = $textBase64; hash = $null; accessibility = 'uia'; readable = $true; supportsWrite = $read.supportsWrite; approximate = ($read.strategy -ne 'ValuePattern'); replaceAll = ($read.strategy -ne 'TextPattern.Selection'); strategy = $read.strategy } + $info)
     return
   }
-  $textBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$read.text))
-  Emit (@{ ok = $true; textBase64 = $textBase64; hash = $null; accessibility = 'uia'; readable = $true; supportsWrite = $read.supportsWrite; approximate = ($read.strategy -ne 'ValuePattern'); replaceAll = ($read.strategy -ne 'TextPattern.Selection'); strategy = $read.strategy } + $info)
+  if ($null -ne $selectionFailure -and $selectionOnly) { Emit (@{ ok = $false; error = 'no-selection'; accessibility = 'uia'; readable = $false; strategy = 'TextPattern.Selection' } + $selectionFailure); return }
+  if ($helperSeen) { Emit @{ ok = $false; error = 'helper-focused'; accessibility = 'uia'; windowHandle = $helperWindow; processId = $helperProcess }; return }
+  Emit @{ ok = $false; error = 'accessibility-unavailable'; accessibility = 'not-exposed'; readable = $false }
 }
 Read-Focused
 `;
@@ -153,12 +229,20 @@ function Runtime-Id($element) { try { return ($element.GetRuntimeId() -join '.')
 function Window-Ancestor($element) {
   $walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
   $currentElement = $element
-  $best = $null
+  $bestWindow = $null
+  $bestWithHandle = $null
   for ($depth = 0; $depth -lt 64 -and $null -ne $currentElement; $depth++) {
-    try { if ($currentElement.Current.ControlType.ProgrammaticName -eq 'ControlType.Window') { $best = $currentElement } } catch { }
+    try {
+      $current = $currentElement.Current
+      $nativeHandle = 0
+      try { $nativeHandle = [int64]$current.NativeWindowHandle } catch { }
+      if ($nativeHandle -gt 0) { $bestWithHandle = $currentElement }
+      if ($current.ControlType.ProgrammaticName -eq 'ControlType.Window') { $bestWindow = $currentElement }
+    } catch { }
     try { $currentElement = $walker.GetParent($currentElement) } catch { break }
   }
-  return $best
+  if ($null -ne $bestWindow) { return $bestWindow }
+  return $bestWithHandle
 }
 function Requested-Int64([string]$name) {
   $value = 0
@@ -259,12 +343,20 @@ function Runtime-Id($element) { try { return ($element.GetRuntimeId() -join '.')
 function Window-Ancestor($element) {
   $walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
   $currentElement = $element
-  $best = $null
+  $bestWindow = $null
+  $bestWithHandle = $null
   for ($depth = 0; $depth -lt 64 -and $null -ne $currentElement; $depth++) {
-    try { if ($currentElement.Current.ControlType.ProgrammaticName -eq 'ControlType.Window') { $best = $currentElement } } catch { }
+    try {
+      $current = $currentElement.Current
+      $nativeHandle = 0
+      try { $nativeHandle = [int64]$current.NativeWindowHandle } catch { }
+      if ($nativeHandle -gt 0) { $bestWithHandle = $currentElement }
+      if ($current.ControlType.ProgrammaticName -eq 'ControlType.Window') { $bestWindow = $currentElement }
+    } catch { }
     try { $currentElement = $walker.GetParent($currentElement) } catch { break }
   }
-  return $best
+  if ($null -ne $bestWindow) { return $bestWindow }
+  return $bestWithHandle
 }
 function Root-Element([Int64]$requested) {
   if ($requested -gt 0) { try { return [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]::new($requested)) } catch { return $null } }
@@ -272,6 +364,8 @@ function Root-Element([Int64]$requested) {
     $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
     $ancestor = Window-Ancestor $focused
     if ($null -ne $ancestor) { return $ancestor }
+    $focusedCurrent = $focused.Current
+    if ([int64]$focusedCurrent.NativeWindowHandle -gt 0) { return $focused }
   } catch { }
   return $null
 }
@@ -301,23 +395,58 @@ function Read-ElementText($element, [int]$maxChars) {
   } catch { }
   return $null
 }
+function Nearby-Label($element) {
+  $current = $null
+  try { $current = $element.Current } catch { return '' }
+  try {
+    if ($null -ne $current.LabeledBy) {
+      $label = Clean ($current.LabeledBy.Current.Name) 240
+      if ($label) { return $label }
+    }
+  } catch { }
+  $walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
+  $parent = $null
+  try { $parent = $walker.GetParent($element) } catch { $parent = $null }
+  if ($null -eq $parent) { return '' }
+  try {
+    $children = @($parent.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition))
+    $elementId = Runtime-Id $element
+    $index = -1
+    for ($childIndex = 0; $childIndex -lt $children.Count; $childIndex++) {
+      if ((Runtime-Id $children[$childIndex]) -eq $elementId) { $index = $childIndex; break }
+    }
+    for ($childIndex = $index - 1; $childIndex -ge [Math]::Max(0, $index - 3); $childIndex--) {
+      $siblingCurrent = $children[$childIndex].Current
+      $siblingType = [string]$siblingCurrent.ControlType.ProgrammaticName
+      $siblingName = Clean $siblingCurrent.Name 240
+      if ($siblingName -and $siblingType -match '(?i)Text|Header|Group') { return $siblingName }
+    }
+  } catch { }
+  return ''
+}
 function Scan-Window {
   $started = [Diagnostics.Stopwatch]::StartNew()
   try { $config = ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:RADIMO_FIELD_MAPPER_CONFIG_B64)) | ConvertFrom-Json) } catch { Emit @{ ok = $false; error = 'invalid-field-mapper-config'; accessibility = 'uia' }; return }
   $requested = 0
   if ($env:RADIMO_FIELD_SCAN_WINDOW) { [Int64]::TryParse($env:RADIMO_FIELD_SCAN_WINDOW, [ref]$requested) | Out-Null }
+  $requestedProcess = 0
+  if ($env:RADIMO_FIELD_SCAN_PROCESS) { [Int64]::TryParse($env:RADIMO_FIELD_SCAN_PROCESS, [ref]$requestedProcess) | Out-Null }
   $root = Root-Element $requested
   if ($null -eq $root) { Emit @{ ok = $false; error = 'window-not-accessible'; accessibility = 'not-exposed'; strategy = 'uia-only' }; return }
   try { $rootCurrent = $root.Current } catch { Emit @{ ok = $false; error = 'window-properties-unavailable'; accessibility = 'uia' }; return }
   $window = [int64]$rootCurrent.NativeWindowHandle
   if ($window -le 0) { $window = $requested }
+  if ($requestedProcess -gt 0 -and [int64]$rootCurrent.ProcessId -ne $requestedProcess) { Emit @{ ok = $false; error = 'target-process-changed'; accessibility = 'uia'; expectedProcess = $requestedProcess; actualProcess = [int64]$rootCurrent.ProcessId; windowHandle = $window }; return }
   $helperWindow = 0
   if ($env:RADIMO_HELPER_WINDOW) { [Int64]::TryParse($env:RADIMO_HELPER_WINDOW, [ref]$helperWindow) | Out-Null }
+  $helperProcess = 0
+  if ($env:RADIMO_HELPER_PROCESS_ID) { [Int64]::TryParse($env:RADIMO_HELPER_PROCESS_ID, [ref]$helperProcess) | Out-Null }
   if ($helperWindow -gt 0 -and $window -eq $helperWindow) { Emit @{ ok = $false; error = 'helper-window'; windowHandle = $window; accessibility = 'uia' }; return }
+  if ($helperProcess -gt 0 -and [int64]$rootCurrent.ProcessId -eq $helperProcess) { Emit @{ ok = $false; error = 'helper-window'; windowHandle = $window; processId = [int64]$rootCurrent.ProcessId; accessibility = 'uia' }; return }
   $maxFields = [Math]::Max(20, [Math]::Min(250, [int]$config.limits.maxFields))
   $maxValueChars = [Math]::Max(256, [Math]::Min(20000, [int]$config.limits.maxValueChars))
   $readValues = $env:RADIMO_FIELD_READ_VALUES -eq 'true'
-  $fields = New-Object 'System.Collections.Generic.List[object]'
+  $fields = New-Object 'System.Collections.Generic.List[System.Object]'
   $processed = 0
   $textFields = 0
   $inaccessible = 0
@@ -334,12 +463,12 @@ function Scan-Window {
     try { $hasValue = $element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$valuePattern) } catch { $hasValue = $false }
     try { $hasText = $element.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern, [ref]$textPattern) } catch { $hasText = $false }
     if (-not $hasValue -and -not $hasText) { continue }
-    $controlType = Clean $current.ControlType.ProgrammaticName 120
-    $isTextControl = $hasValue -or $controlType -match '(?i)Edit|Document|ComboBox|Custom'
+    $controlType = Clean ($current.ControlType.ProgrammaticName) 120
+    $isTextControl = $controlType -match '(?i)Edit|Document|ComboBox|Custom' -or ($hasValue -and $controlType -notmatch '(?i)Button|CheckBox|RadioButton|Hyperlink|MenuItem|ListItem|TreeItem|TabItem')
     if (-not $isTextControl) { continue }
     $textFields++
     $labeledByName = ''
-    try { if ($null -ne $current.LabeledBy) { $labeledByName = Clean $current.LabeledBy.Current.Name 240 } } catch { }
+    try { $labeledByName = Nearby-Label $element } catch { }
     $name = Clean $current.Name 240
     $automationId = Clean $current.AutomationId 180
     $helpText = Clean $current.HelpText 240
@@ -349,7 +478,7 @@ function Scan-Window {
     try { $isPassword = [bool]$current.IsPassword } catch { }
     $excluded = $isPassword
     if (-not $excluded) { foreach ($identity in $identities) { if (Matches-Pattern $identity $config.exclude) { $excluded = $true; break } } }
-    $matches = New-Object 'System.Collections.Generic.List[object]'
+    $matches = New-Object 'System.Collections.Generic.List[System.Object]'
     if (-not $excluded) {
       foreach ($rule in @($config.include)) {
         $matched = $false
@@ -382,9 +511,10 @@ function Scan-Window {
       isReadOnly = $isReadOnly
       supportsValue = [bool]$hasValue
       supportsText = [bool]$hasText
+      readStrategy = $(if ($hasValue) { 'ValuePattern' } elseif ($hasText) { 'TextPattern' } else { '' })
       identities = @($identities)
       excluded = $excluded
-      matches = @($matches)
+      matches = $matches.ToArray()
       valueBase64 = $valueBase64
       valueChars = $(if ($null -eq $value) { 0 } else { ([string]$value).Length })
     })
@@ -392,7 +522,7 @@ function Scan-Window {
   $processName = ''
   try { $processName = [Diagnostics.Process]::GetProcessById([int]$rootCurrent.ProcessId).ProcessName + '.exe' } catch { }
   $started.Stop()
-  Emit @{ ok = $true; schema = 'reporthalo.field-scan.v1'; generatedAt = [DateTime]::UtcNow.ToString('o'); windowHandle = $window; windowHandleSource = $(if ($requested -gt 0) { 'requested' } else { 'uia-focused-ancestor' }); processId = [int]$rootCurrent.ProcessId; processName = $processName; frameworkId = Clean $rootCurrent.FrameworkId 80; controlType = Clean $rootCurrent.ControlType.ProgrammaticName 120; fields = @($fields); diagnostics = @{ scanned = $processed; textFields = $textFields; inaccessibleFields = $inaccessible; truncated = $truncated; durationMs = $started.ElapsedMilliseconds; readValues = $readValues; strategy = 'uia-only'; nativeFallback = $false } }
+  Emit @{ ok = $true; schema = 'reporthalo.field-scan.v1'; generatedAt = [DateTime]::UtcNow.ToString('o'); windowHandle = $window; windowHandleSource = $(if ($requested -gt 0) { 'requested' } else { 'uia-focused-ancestor' }); processId = [int]$rootCurrent.ProcessId; processName = $processName; frameworkId = Clean ($rootCurrent.FrameworkId) 80; controlType = Clean ($rootCurrent.ControlType.ProgrammaticName) 120; fields = $fields.ToArray(); diagnostics = @{ scanned = $processed; textFields = $textFields; inaccessibleFields = $inaccessible; truncated = $truncated; durationMs = $started.ElapsedMilliseconds; readValues = $readValues; strategy = 'uia-only'; patterns = 'ValuePattern, TextPattern'; nativeFallback = $false } }
 }
 Scan-Window
 `;
@@ -402,16 +532,29 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, WindowsBase
 function Emit($value) { $value | ConvertTo-Json -Compress -Depth 12 }
 function Runtime-Id($element) { try { return ($element.GetRuntimeId() -join '.') } catch { return '' } }
+function Element-Matches($element, [string]$runtimeId, [string]$automationId, [string]$controlType, [string]$name) {
+  try {
+    $current = $element.Current
+    if ($runtimeId) { return ((Runtime-Id $element) -eq $runtimeId -and (!$controlType -or $current.ControlType.ProgrammaticName -eq $controlType)) }
+    if ($automationId) { return ($current.AutomationId -eq $automationId -and (!$controlType -or $current.ControlType.ProgrammaticName -eq $controlType)) }
+    if ($name) { return ($current.Name -eq $name -and (!$controlType -or $current.ControlType.ProgrammaticName -eq $controlType)) }
+    if ($controlType) { return ($current.ControlType.ProgrammaticName -eq $controlType) }
+  } catch { }
+  return $false
+}
 function Find-Mapped($root, [string]$runtimeId, [string]$automationId, [string]$controlType, [string]$name, [Int64]$controlWindow) {
-  if ($controlWindow -gt 0) { try { $element = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]::new($controlWindow)); if ($null -ne $element) { return $element } } catch { } }
   if ($null -eq $root) { return $null }
-  $elements = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
-  foreach ($candidate in @($elements)) {
+  $elements = New-Object 'System.Collections.Generic.List[System.Object]'
+  [void]$elements.Add($root)
+  foreach ($child in @($root.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition))) { [void]$elements.Add($child) }
+  foreach ($candidate in $elements.ToArray()) {
+    if (Element-Matches $candidate $runtimeId $automationId $controlType $name) { return $candidate }
+  }
+  if ($controlWindow -gt 0) {
     try {
-      $current = $candidate.Current
-      if ($runtimeId -and (Runtime-Id $candidate) -eq $runtimeId) { return $candidate }
-      if ($automationId -and $current.AutomationId -eq $automationId -and (!$controlType -or $current.ControlType.ProgrammaticName -eq $controlType)) { return $candidate }
-      if (-not $automationId -and $name -and $current.Name -eq $name -and (!$controlType -or $current.ControlType.ProgrammaticName -eq $controlType)) { return $candidate }
+      $fromHandle = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]::new($controlWindow))
+      if ($null -ne $fromHandle -and (Element-Matches $fromHandle $runtimeId $automationId $controlType $name)) { return $fromHandle }
+      if ($null -ne $fromHandle -and -not $runtimeId -and -not $automationId -and -not $name -and -not $controlType) { return $fromHandle }
     } catch { }
   }
   return $null
@@ -431,8 +574,13 @@ if (-not $focused) { Emit @{ ok = $false; verified = $false; error = 'focus-not-
 Start-Sleep -Milliseconds 90
 $verified = $false
 $focusedRuntime = ''
-try { $focusedRuntime = Runtime-Id ([System.Windows.Automation.AutomationElement]::FocusedElement); $verified = (-not $env:RADIMO_FIELD_RUNTIME_ID -or $focusedRuntime -eq $env:RADIMO_FIELD_RUNTIME_ID) } catch { }
-Emit @{ ok = $true; verified = $verified; accessibility = 'uia'; strategy = 'SafeUIA.SetFocus'; windowHandle = $window; controlWindowHandle = $controlWindow; runtimeId = $(if ($env:RADIMO_FIELD_RUNTIME_ID) { $env:RADIMO_FIELD_RUNTIME_ID } else { $focusedRuntime }); processId = [int]$env:RADIMO_FIELD_PROCESS }
+try {
+  $focusedElement = [System.Windows.Automation.AutomationElement]::FocusedElement
+  $focusedRuntime = Runtime-Id $focusedElement
+  $focusedCurrent = $focusedElement.Current
+  $verified = if ($env:RADIMO_FIELD_RUNTIME_ID) { $focusedRuntime -eq $env:RADIMO_FIELD_RUNTIME_ID } elseif ($controlWindow -gt 0) { [int64]$focusedCurrent.NativeWindowHandle -eq $controlWindow } else { Element-Matches $focusedElement $env:RADIMO_FIELD_RUNTIME_ID $env:RADIMO_FIELD_AUTOMATION_ID $env:RADIMO_FIELD_CONTROL_TYPE $env:RADIMO_FIELD_NAME }
+} catch { }
+Emit @{ ok = $true; verified = $verified; accessibility = 'uia'; strategy = 'SafeUIA.SetFocus'; windowHandle = $window; controlWindowHandle = $controlWindow; runtimeId = $(if ($env:RADIMO_FIELD_RUNTIME_ID) { $env:RADIMO_FIELD_RUNTIME_ID } else { $focusedRuntime }); focusedRuntimeId = $focusedRuntime; processId = [int]$env:RADIMO_FIELD_PROCESS }
 `;
 
 function parseJsonResult(stdout, stderr, code) {
@@ -482,12 +630,13 @@ function runSafePowerShell(environment = {}, script = "", timeoutMs = 15000) {
   });
 }
 
-function baseEnvironment({ helperWindowHandle = "", helperProcessId = "", pointX = "", pointY = "" } = {}) {
+function baseEnvironment({ helperWindowHandle = "", helperProcessId = "", pointX = "", pointY = "", pointScale = "" } = {}) {
   return {
     RADIMO_HELPER_WINDOW: String(helperWindowHandle || ""),
     RADIMO_HELPER_PROCESS_ID: String(helperProcessId || ""),
     RADIMO_FIELD_POINT_X: String(pointX ?? ""),
     RADIMO_FIELD_POINT_Y: String(pointY ?? ""),
+    RADIMO_FIELD_POINT_SCALE: String(pointScale ?? ""),
   };
 }
 
@@ -518,9 +667,9 @@ function decodeBase64Result(result, property, outputProperty = property.replace(
   return result;
 }
 
-async function readSafeFocusedField({ selectionOnly = false, helperWindowHandle = "", helperProcessId = "", windowHandle = "", processId = "", pointX = "", pointY = "" } = {}) {
+async function readSafeFocusedField({ selectionOnly = false, helperWindowHandle = "", helperProcessId = "", windowHandle = "", processId = "", pointX = "", pointY = "", pointScale = "" } = {}) {
   const result = await runSafePowerShell({
-    ...baseEnvironment({ helperWindowHandle, helperProcessId, pointX, pointY }),
+    ...baseEnvironment({ helperWindowHandle, helperProcessId, pointX, pointY, pointScale }),
     RADIMO_FIELD_SELECTION_ONLY: selectionOnly ? "true" : "false",
     RADIMO_FIELD_EXPECTED_WINDOW: String(windowHandle || ""),
     RADIMO_FIELD_EXPECTED_PROCESS: String(processId || ""),
@@ -548,6 +697,7 @@ async function scanSafeFieldWindow({ windowHandle = "", target = null, helperWin
   const result = await runSafePowerShell({
     ...baseEnvironment({ helperWindowHandle, helperProcessId }),
     RADIMO_FIELD_SCAN_WINDOW: String(windowHandle || target?.windowHandle || ""),
+    RADIMO_FIELD_SCAN_PROCESS: String(target?.processId || ""),
     RADIMO_FIELD_MAPPER_CONFIG_B64: configBase64,
     RADIMO_FIELD_READ_VALUES: readValues ? "true" : "false",
   }, SAFE_SCAN_POWERSHELL, 12000);

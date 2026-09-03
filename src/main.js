@@ -632,6 +632,27 @@ function helperNativeWindowHandle() {
   }
 }
 
+function waitForExternalFocus() {
+  return new Promise((resolve) => setTimeout(resolve, 140));
+}
+
+async function withHelperTemporarilyHidden(task) {
+  const helper = helperWindowRef;
+  if (process.platform !== "win32" || !helper || helper.isDestroyed() || !helper.isVisible()) return task();
+  const wasFocusable = typeof helper.isFocusable === "function" ? helper.isFocusable() : false;
+  helper.setFocusable(false);
+  helper.hide();
+  await waitForExternalFocus();
+  try {
+    return await task();
+  } finally {
+    if (!helper.isDestroyed()) {
+      helper.setFocusable(wasFocusable);
+      helper.showInactive();
+    }
+  }
+}
+
 function normalizeHelperCubeMode(value) {
   return Object.prototype.hasOwnProperty.call(HELPER_CUBE_MODES, value) ? value : "compact";
 }
@@ -1153,7 +1174,15 @@ registerIpcHandler("clipboard:write", (_event, text) => {
 });
 registerIpcHandler("clipboard:read", () => clipboard.readText());
 registerIpcHandler("field:read-focused", async (_event, options) => {
-  const result = await readFocusedField({ ...(options || {}), helperWindowHandle: helperNativeWindowHandle(), helperProcessId: process.pid });
+  const request = options || {};
+  const hasPoint = request.pointX !== "" && request.pointY !== "" && Number.isFinite(Number(request.pointX)) && Number.isFinite(Number(request.pointY));
+  const releaseHelper = request.accessMode !== "clipboard" && !request.windowHandle && !hasPoint;
+  let pointScale = "";
+  if (hasPoint && process.platform === "win32") {
+    try { pointScale = screen.getDisplayNearestPoint({ x: Number(request.pointX), y: Number(request.pointY) }).scaleFactor || ""; } catch { /* display lookup is optional */ }
+  }
+  const run = releaseHelper ? withHelperTemporarilyHidden : async (task) => task();
+  const result = await run(() => readFocusedField({ ...request, pointScale, helperWindowHandle: helperNativeWindowHandle(), helperProcessId: process.pid }));
   log(result?.ok ? "INFO" : "WARN", "Focused field capture", {
     ok: Boolean(result?.ok),
     strategy: result?.strategy || null,
@@ -1207,15 +1236,19 @@ registerIpcHandler("field-mapper:set-config", async (_event, payload) => {
 registerIpcHandler("field:scan-window", async (_event, payload) => {
   const profile = await ensureFieldMapperProfile();
   const readValues = payload?.readValues !== false;
-  const raw = await scanRawFieldWindow({
-    windowHandle: payload?.windowHandle,
-    target: payload?.target,
+  const request = payload || {};
+  const requestedWindow = request.windowHandle || request.target?.windowHandle || "";
+  const releaseHelper = request.accessMode !== "clipboard" && !requestedWindow;
+  const run = releaseHelper ? withHelperTemporarilyHidden : async (task) => task();
+  const raw = await run(() => scanRawFieldWindow({
+    windowHandle: request.windowHandle,
+    target: request.target,
     helperWindowHandle: helperNativeWindowHandle(),
     helperProcessId: process.pid,
-    accessMode: payload?.accessMode,
+    accessMode: request.accessMode,
     profile,
     readValues,
-  });
+  }));
   if (!raw?.ok) {
     log("WARN", "Field mapper scan failed", { error: raw?.error || "unknown", windowHandle: raw?.windowHandle || null });
     return raw;

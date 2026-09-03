@@ -126,7 +126,7 @@ const FIELD_ACCESS_MODES = {
   },
   uia: {
     label: "UIA-Feldzugriff · testen",
-    description: "Liest nur das fokussierte UI-Automation-Element. Nicht jedes DMO-/RIS-Feld stellt diesen Zugriff bereit.",
+    description: "Nur auf ausdrücklichen Klick: der Helper wird kurz ausgeblendet und liest ausschließlich ValuePattern/TextPattern des fokussierten UIA-Elements. Nicht jedes DMO-/RIS-Feld stellt diesen Zugriff bereit.",
   },
   compatibility: {
     label: "Kompatibilität · legacy",
@@ -1747,7 +1747,27 @@ async function insertTextIntoField(value, { isDictation = false, automatic = fal
 }
 
 async function insertPendingDictation() {
-  await insertTextIntoField(state.pendingDictationText, { isDictation: true, targetOverride: state.pendingDictationTarget });
+  const textToInsert = String(state.pendingDictationText || "").trim();
+  if (!textToInsert) {
+    helperSetStatus("Noch kein Diktat zum Einsetzen vorhanden.", "Leer");
+    return null;
+  }
+  if (!state.pendingDictationTarget?.windowHandle && fieldAccessMode() === "clipboard") {
+    try {
+      await window.radimoAgent.writeClipboard(textToInsert);
+      state.pendingDictationText = "";
+      state.pendingDictationTarget = null;
+      state.helperSourceText = textToInsert;
+      syncDiscussionScope();
+      setMiniDictationState("idle");
+      helperSetStatus("Diktat kopiert. Im RIS/DMO am Cursor mit Strg+V einfügen.", "Kopiert");
+      return { ok: true, verified: false, copied: true };
+    } catch (error) {
+      helperSetStatus(error.message || "Diktat konnte nicht in die Zwischenablage kopiert werden.", "Prüfung nötig");
+      return null;
+    }
+  }
+  return insertTextIntoField(textToInsert, { isDictation: true, targetOverride: state.pendingDictationTarget });
 }
 
 async function insertReviewResult() {
@@ -1911,8 +1931,9 @@ async function miniStartDictation(point = null) {
     await insertPendingDictation();
     return;
   }
-  const target = state.focusedTarget?.windowHandle ? state.focusedTarget : await miniCaptureField({ point });
-  if (!target?.windowHandle) {
+  const clipboardFallback = fieldAccessMode() === "clipboard";
+  const target = state.focusedTarget?.windowHandle ? state.focusedTarget : clipboardFallback ? null : await miniCaptureField({ point });
+  if (!target?.windowHandle && !clipboardFallback) {
     helperSetStatus("Zuerst den Cursor im Zielprogramm setzen. Diktat wird erst nach Bestätigung eingesetzt.", "Feld fehlt");
     return;
   }
@@ -1931,7 +1952,7 @@ async function miniStartDictation(point = null) {
     stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: true, autoGainControl: true }, video: false });
     const mimeType = recordingMimeType();
     const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-    const recording = { recorder, stream, chunks: [], timer: null, cancelled: false, target: { ...target } };
+    const recording = { recorder, stream, chunks: [], timer: null, cancelled: false, target: target ? { ...target } : null };
     state.recording = recording;
     recorder.addEventListener("dataavailable", (event) => { if (event.data?.size) recording.chunks.push(event.data); });
     recorder.addEventListener("error", (event) => helperSetStatus(`Mikrofonfehler: ${event.error?.message || "Aufnahme abgebrochen"}`, "Prüfung nötig"));
@@ -1952,10 +1973,17 @@ async function miniStartDictation(point = null) {
         });
         state.pendingDictationText = String(result.text || "").trim();
         state.helperSourceText = state.pendingDictationText;
-        state.pendingDictationTarget = state.pendingDictationText ? { ...recording.target } : null;
+        state.pendingDictationTarget = state.pendingDictationText && recording.target ? { ...recording.target } : null;
         setMiniDictationState(state.pendingDictationText ? "ready" : "idle");
         syncDiscussionScope();
-        helperSetStatus(state.pendingDictationText ? "Diktat bereit. Einsetzen bleibt eine separate Bestätigung." : "Leere Transkription erhalten.", state.pendingDictationText ? "Einfügen bereit" : "Leer");
+        helperSetStatus(
+          state.pendingDictationText
+            ? recording.target
+              ? "Diktat bereit. Einsetzen bleibt eine separate Bestätigung."
+              : "Diktat bereit. Beim Einsetzen wird der Text kopiert; im RIS/DMO am Cursor mit Strg+V einfügen."
+            : "Leere Transkription erhalten.",
+          state.pendingDictationText ? "Einfügen bereit" : "Leer",
+        );
       } catch (error) {
         setMiniDictationState("idle");
         helperSetStatus(error.message || "Diktat konnte nicht transkribiert werden.", "Prüfung nötig");
@@ -2105,7 +2133,7 @@ function renderFieldMapperReport(report) {
   if (!list) return;
   list.replaceChildren();
   if (!report) {
-    text("fieldMapperStatus", "Nur nach ausdrücklichem Klick: prüft den UIA-Baum des aktiven Fensters. Identitätsfelder werden ausgeschlossen.");
+    text("fieldMapperStatus", "Nur nach ausdrücklichem Klick: blendet den Helper kurz aus und prüft den UIA-Baum des aktiven Fensters. Identitätsfelder werden ausgeschlossen.");
     return;
   }
   const diagnostics = report.diagnostics || {};

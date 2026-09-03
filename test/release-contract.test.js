@@ -175,6 +175,8 @@ test("function prompts are user-editable and preserve reusable chat text", async
   assert.match(app, /function assessmentTransferPlan\(value, source = state\.lastSourceText, generatedAddendum = state\.lastResultInsertText\)/);
   assert.match(app, /const automaticTransferText = appended \? generatedText : result/);
   assert.match(app, /sourceText: state\.lastSourceText/);
+  assert.match(app, /const clipboardFallback = fieldAccessMode\(\) === "clipboard"/);
+  assert.match(app, /Diktat kopiert\. Im RIS\/DMO am Cursor mit Strg\+V einfügen/);
   assert.match(app, /reviewMode: "text"/);
   assert.match(renderer, /Vollständiger Funktionsprompt/);
   assert.match(renderer, /id="miniConfigPrompt"[^>]*maxlength="8000"/);
@@ -205,12 +207,14 @@ test("field mapper applies label rules before reading and keeps the context stru
     processId: 42,
     windowHandle: "123",
     fields,
-    diagnostics: { scanned: 4, textFields: 4 },
+    diagnostics: { scanned: 4, textFields: 4, strategy: "uia-only", patterns: "ValuePattern, TextPattern" },
   }, profile, { readValues: true });
   assert.deepEqual(report.groups.map((group) => group.key), ["clinical_question", "report"]);
   assert.match(report.prompt, /CT Thorax/);
   assert.doesNotMatch(report.prompt, /Max Mustermann|nicht zugeordnet/);
   assert.ok(report.fields.some((field) => field.excluded));
+  assert.equal(report.diagnostics.strategy, "uia-only");
+  assert.equal(report.diagnostics.patterns, "ValuePattern, TextPattern");
   assert.equal(defaultFieldMapperProfile().schema, "reporthalo.field-map.v1");
 });
 
@@ -233,9 +237,16 @@ test("field mapper is available in the integrated and standalone Windows builds"
   assert.match(main, /field:scan-window/);
   assert.match(main, /clipboard:read/);
   assert.match(main, /getCursorScreenPoint/);
+  assert.match(main, /withHelperTemporarilyHidden/);
   assert.match(bridge, /RADIMO_FIELD_INSERT_AT_CURSOR/);
   assert.match(safeBridge, /SAFE_READ_POWERSHELL/);
   assert.match(safeBridge, /SAFE_WRITE_POWERSHELL/);
+  assert.match(safeBridge, /List\[System\.Object\]/);
+  assert.match(safeBridge, /\.ToArray\(\)/);
+  assert.match(safeBridge, /Nearby-Label/);
+  assert.match(safeBridge, /RADIMO_FIELD_POINT_SCALE/);
+  assert.match(safeBridge, /RADIMO_FIELD_SCAN_PROCESS/);
+  assert.doesNotMatch(safeBridge, /LegacyIAccessiblePattern/);
   assert.doesNotMatch(safeBridge, /"-ExecutionPolicy"/);
   assert.doesNotMatch(safeBridge, /Add-Type @'/);
   assert.match(bridge, /actualTextBase64/);
@@ -254,6 +265,7 @@ test("field mapper is available in the integrated and standalone Windows builds"
   assert.match(styles, /\.mini-target-cell\.is-auto-target/);
   assert.match(standalone, /RadIMO - ReportHalo Field Mapper/);
   assert.match(standalone, /field-mapper:scan/);
+  assert.match(standalone, /helperProcessId: process\.pid/);
   assert.doesNotMatch(standalone, /globalShortcut/);
   assert.match(config, /field-mapper-main\.js/);
   assert.match(config, /windows-safe-field-bridge\.js/);
