@@ -8,6 +8,7 @@ const fs = require("node:fs/promises");
 const crypto = require("node:crypto");
 const { configure, getLogPath, log, readLog } = require("./logger");
 const { focusMappedField, readFocusedField, scanFieldWindow: scanRawFieldWindow, writeFocusedField } = require("./windows-field-bridge");
+const { blockedFieldAccessResult, experimentalUiaEnabled } = require("./field-access-policy");
 const {
   buildFieldMapReport,
   loadFieldMapperProfile,
@@ -473,6 +474,10 @@ function sendToRenderer(channel, payload) {
   if (helperWindowRef && !helperWindowRef.isDestroyed()) helperWindowRef.webContents.send(channel, payload);
 }
 
+function runtimeCapabilities() {
+  return { experimentalUia: experimentalUiaEnabled() };
+}
+
 const SNIP_IPC_CHANNELS = new Set(["snip:finish", "snip:cancel"]);
 
 function trustedIpcSender(event, windowRef) {
@@ -598,7 +603,7 @@ async function createHelperWindow() {
   });
   helperWindowRef.webContents.once("did-finish-load", () => {
     helperWindowRef.showInactive();
-    if (agentClient) sendToRenderer("agent:ready", { appName: APP_NAME, ...getBackendInfo() });
+    if (agentClient) sendToRenderer("agent:ready", { appName: APP_NAME, ...getBackendInfo(), ...runtimeCapabilities() });
   });
   helperWindowRef.on("move", saveHelperBoundsSoon);
   helperWindowRef.on("system-context-menu", (event, params = {}) => {
@@ -881,7 +886,7 @@ registerIpcHandler("snip:copy", (_event, dataUrl) => {
 
 registerIpcHandler("agent:status", async () => {
   const client = await ensureAgent();
-  return { ...getBackendInfo(), ...(await client.authStatus()) };
+  return { ...getBackendInfo(), ...runtimeCapabilities(), ...(await client.authStatus()) };
 });
 
 registerIpcHandler("agent:browser-login", async () => {
@@ -945,7 +950,7 @@ registerIpcHandler("agent:copy-diagnostics", async () => {
       arch: process.arch,
       electron: process.versions.electron,
       node: process.versions.node,
-      backend: getBackendInfo(),
+      backend: { ...getBackendInfo(), ...runtimeCapabilities() },
       codex: BACKEND_MODE === "codex" ? agentClient?.bin || require("./platform").resolveCodexBinary() : null,
       api: BACKEND_MODE === "api" ? await agentApiStatus() : null,
     },
@@ -1175,6 +1180,17 @@ registerIpcHandler("clipboard:write", (_event, text) => {
 registerIpcHandler("clipboard:read", () => clipboard.readText());
 registerIpcHandler("field:read-focused", async (_event, options) => {
   const request = options || {};
+  const accessMode = request.accessMode;
+  if (accessMode !== "uia" && accessMode !== "clipboard") {
+    const result = blockedFieldAccessResult({ operation: "field-read" });
+    log("WARN", "Focused field capture blocked by policy", { error: result.error });
+    return result;
+  }
+  if (accessMode === "uia" && !experimentalUiaEnabled()) {
+    const result = blockedFieldAccessResult({ operation: "field-read" });
+    log("WARN", "Focused field capture blocked by policy", { error: result.error });
+    return result;
+  }
   const hasPoint = request.pointX !== "" && request.pointY !== "" && Number.isFinite(Number(request.pointX)) && Number.isFinite(Number(request.pointY));
   const releaseHelper = request.accessMode !== "clipboard" && !request.windowHandle && !hasPoint;
   let pointScale = "";
@@ -1192,6 +1208,17 @@ registerIpcHandler("field:read-focused", async (_event, options) => {
   return result;
 });
 registerIpcHandler("field:focus-mapped", async (_event, payload) => {
+  const accessMode = payload?.accessMode || payload?.target?.accessMode;
+  if (accessMode !== "uia" && accessMode !== "clipboard") {
+    const result = blockedFieldAccessResult({ operation: "field-focus" });
+    log("WARN", "Mapped field focus blocked by policy", { error: result.error });
+    return result;
+  }
+  if (accessMode === "uia" && !experimentalUiaEnabled()) {
+    const result = blockedFieldAccessResult({ operation: "field-focus" });
+    log("WARN", "Mapped field focus blocked by policy", { error: result.error });
+    return result;
+  }
   const result = await focusMappedField({
     windowHandle: payload?.windowHandle,
     target: payload?.target,
@@ -1207,6 +1234,12 @@ registerIpcHandler("field:focus-mapped", async (_event, payload) => {
 });
 registerIpcHandler("field:write-focused", async (_event, payload) => {
   if (!payload || typeof payload.text !== "string") return { ok: false, verified: false, error: "empty-text" };
+  const accessMode = payload.accessMode || payload.target?.accessMode;
+  if (accessMode !== "uia" || !experimentalUiaEnabled()) {
+    const result = blockedFieldAccessResult({ operation: "field-write" });
+    log("WARN", "Focused field write blocked by policy", { error: result.error });
+    return result;
+  }
   const previousClipboard = snapshotClipboard(clipboard);
   clipboard.writeText(payload.text);
   try {
@@ -1234,9 +1267,20 @@ registerIpcHandler("field-mapper:set-config", async (_event, payload) => {
   return fieldMapperProfileSummary(fieldMapperProfileLoaded, app.getPath("userData"));
 });
 registerIpcHandler("field:scan-window", async (_event, payload) => {
+  const request = payload || {};
+  const accessMode = request.accessMode || request.target?.accessMode;
+  if (accessMode !== "uia" && accessMode !== "clipboard") {
+    const result = blockedFieldAccessResult({ operation: "field-scan" });
+    log("WARN", "Field mapper scan blocked by policy", { error: result.error });
+    return result;
+  }
+  if (accessMode === "clipboard" || !experimentalUiaEnabled()) {
+    const result = blockedFieldAccessResult({ operation: "field-scan", clipboard: accessMode === "clipboard" });
+    log("WARN", "Field mapper scan blocked by policy", { error: result.error });
+    return result;
+  }
   const profile = await ensureFieldMapperProfile();
   const readValues = payload?.readValues !== false;
-  const request = payload || {};
   const requestedWindow = request.windowHandle || request.target?.windowHandle || "";
   const releaseHelper = request.accessMode !== "clipboard" && !requestedWindow;
   const run = releaseHelper ? withHelperTemporarilyHidden : async (task) => task();
@@ -1481,9 +1525,9 @@ if (!hasSingleInstanceLock) {
       await createHelperWindow();
       registerHelperShortcuts();
       broadcastWorkflowState();
-      sendToRenderer("agent:ready", { appName: APP_NAME, ...getBackendInfo() });
+      sendToRenderer("agent:ready", { appName: APP_NAME, ...getBackendInfo(), ...runtimeCapabilities() });
       void ensureAgent().then(() => {
-        sendToRenderer("agent:ready", { appName: APP_NAME, ...getBackendInfo() });
+        sendToRenderer("agent:ready", { appName: APP_NAME, ...getBackendInfo(), ...runtimeCapabilities() });
       }).catch((error) => {
         log("ERROR", `${getBackendInfo().label} startup failed`, { message: error?.message || String(error) });
         sendToRenderer("agent:error", { message: error instanceof Error ? error.message : String(error) });

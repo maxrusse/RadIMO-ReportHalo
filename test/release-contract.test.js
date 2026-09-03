@@ -11,6 +11,7 @@ const { normalizeEndpoint } = require("../src/agent-api-config");
 const { MAX_TRANSCRIPTION_PROMPT_CHARS, TRANSCRIPTION_PROMPT, normalizeTranscriptionPrompt } = require("../src/openai-audio");
 const { estimateCostEur, UsageBudget } = require("../src/usage-budget");
 const { normalizedProxyUrl, parseProxyInput, proxyEndpointFromRules } = require("../src/windows-proxy");
+const { blockedFieldAccessResult, experimentalUiaEnabled } = require("../src/field-access-policy");
 const {
   buildFieldMapReport,
   defaultFieldMapperProfile,
@@ -117,6 +118,25 @@ test("usage budget exposes unknown pricing without blocking token accounting", a
   }
 });
 
+test("UIA field access is opt-in per process and clipboard mode has an explicit safe result", () => {
+  assert.equal(experimentalUiaEnabled({ RADIMO_ENABLE_EXPERIMENTAL_UIA: "1" }), true);
+  assert.equal(experimentalUiaEnabled({ RADIMO_ENABLE_EXPERIMENTAL_UIA: "0" }), false);
+  assert.deepEqual(blockedFieldAccessResult({ operation: "field-scan" }), {
+    ok: false,
+    verified: false,
+    error: "uia-disabled-by-policy",
+    accessibility: "uia-disabled",
+    strategy: "experimental-uia-disabled",
+  });
+  assert.deepEqual(blockedFieldAccessResult({ operation: "field-read", clipboard: true }), {
+    ok: false,
+    verified: false,
+    error: "field-read-clipboard-mode",
+    accessibility: "clipboard",
+    strategy: "clipboard-only",
+  });
+});
+
 test("GitHub Pages product page is self-contained and brand-aligned", async () => {
   const page = await fs.readFile(path.join(__dirname, "..", "docs", "index.html"), "utf8");
   assert.match(page, /RadIMO – ReportHalo/);
@@ -181,7 +201,7 @@ test("function prompts are user-editable and preserve reusable chat text", async
   assert.match(app, /Vollständiger Ergebnistext kopiert\. Im RIS\/DMO prüfen und mit Strg\+V einfügen/);
   assert.match(app, /clipboardPrepared/);
   assert.match(app, /genau einen vollständigen Writing Block/);
-  assert.match(medicalGate, /complete corrected text as one Writing Block/);
+  assert.match(medicalGate, /entire supplied text as exactly one complete Writing Block/);
   assert.match(app, /reviewMode: "text"/);
   assert.match(renderer, /Vollständiger Funktionsprompt/);
   assert.match(renderer, /id="miniConfigPrompt"[^>]*maxlength="8000"/);
@@ -194,18 +214,24 @@ test("field mapper applies label rules before reading and keeps the context stru
   const profile = parseRuleText([
     "clinical_question = *frage*",
     "report = *befund*",
-  ].join("\n"), "*patient*\n*geburtsdatum*");
+  ].join("\n"), "*patient*\n*geburtsdatum*\n*vorname*");
   const fields = [
     { name: "Edit1", labeledBy: "Fragestellung", value: "CT Thorax", supportsValue: true },
     { name: "Edit2", label: "Befund", value: "Kein Erguss.", supportsValue: true },
     { name: "Edit3", label: "Patient", value: "Max Mustermann", supportsValue: true },
     { name: "Edit4", label: "Interne Notiz", value: "nicht zugeordnet", supportsValue: true },
+    { name: "EditorControl", className: "ReportEditor", value: "falscher Treffer", supportsValue: true },
+    { name: "Edit5", containerNames: ["Befund"], value: "Container label", supportsValue: true },
+    { name: "Edit6", label: "Vorname", value: "Max", supportsValue: true },
   ];
   const matched = matchContextFields(fields, profile);
   assert.equal(matched[0].matches[0].key, "clinical_question");
   assert.equal(matched[1].matches[0].key, "report");
   assert.equal(matched[2].excluded, true);
   assert.equal(matched[3].matched, false);
+  assert.equal(matched[4].matched, false);
+  assert.equal(matched[5].matches[0].key, "report");
+  assert.equal(matched[6].excluded, true);
   const report = buildFieldMapReport({
     ok: true,
     processName: "ris.exe",
@@ -229,6 +255,7 @@ test("field mapper is available in the integrated and standalone Windows builds"
   const preload = await fs.readFile(path.join(__dirname, "..", "src", "preload.js"), "utf8");
   const bridge = await fs.readFile(path.join(__dirname, "..", "src", "windows-field-bridge.js"), "utf8");
   const safeBridge = await fs.readFile(path.join(__dirname, "..", "src", "windows-safe-field-bridge.js"), "utf8");
+  const accessPolicy = await fs.readFile(path.join(__dirname, "..", "src", "field-access-policy.js"), "utf8");
   const app = await fs.readFile(path.join(__dirname, "..", "src", "renderer", "app.js"), "utf8");
   const renderer = await fs.readFile(path.join(__dirname, "..", "src", "renderer", "index.html"), "utf8");
   const styles = await fs.readFile(path.join(__dirname, "..", "src", "renderer", "styles.css"), "utf8");
@@ -240,16 +267,24 @@ test("field mapper is available in the integrated and standalone Windows builds"
   assert.match(preload, /focusMappedField/);
   assert.match(preload, /readClipboard/);
   assert.match(main, /field:scan-window/);
+  assert.match(main, /Focused field capture blocked by policy/);
+  assert.match(main, /Focused field write blocked by policy/);
+  assert.match(main, /const accessMode = payload\?\.accessMode \|\| payload\?\.target\?\.accessMode/);
   assert.match(main, /clipboard:read/);
   assert.match(main, /getCursorScreenPoint/);
   assert.match(main, /withHelperTemporarilyHidden/);
   assert.doesNotMatch(bridge, /user32|ExecutionPolicy|SendKeys|Add-Type/i);
-  assert.match(bridge, /clipboard-source-required/);
+  assert.match(bridge, /field-access-policy/);
+  assert.match(accessPolicy, /uia-disabled-by-policy/);
+  assert.match(bridge, /mode !== "uia"/);
   assert.match(safeBridge, /SAFE_READ_POWERSHELL/);
   assert.match(safeBridge, /SAFE_WRITE_POWERSHELL/);
   assert.match(safeBridge, /List\[System\.Object\]/);
   assert.match(safeBridge, /\.ToArray\(\)/);
   assert.match(safeBridge, /Nearby-Label/);
+  assert.match(safeBridge, /Container-Names/);
+  assert.match(safeBridge, /containerNames/);
+  assert.match(safeBridge, /\$fieldLike = \$info\.controlType -match/);
   assert.match(safeBridge, /RADIMO_FIELD_POINT_SCALE/);
   assert.match(safeBridge, /RADIMO_FIELD_SCAN_PROCESS/);
   assert.doesNotMatch(safeBridge, /LegacyIAccessiblePattern/);
@@ -267,6 +302,11 @@ test("field mapper is available in the integrated and standalone Windows builds"
   assert.match(app, /transferNeedsReview/);
   assert.match(app, /RIS-Übertragung wurde gesendet/);
   assert.match(app, /Zwischenablage-Modus aktiv\. Keine UIA-Diagnose gestartet/);
+  assert.match(app, /experimentalUia/);
+  assert.match(app, /selectionOnly/);
+  assert.match(app, /function likelyCompleteCorrection\(source, result\)/);
+  assert.match(app, /const incompleteCorrection = task === "correction"/);
+  assert.match(safeBridge, /selection-write-requires-manual-paste/);
   assert.match(app, /OPB/);
   assert.match(styles, /target-drop-pulse/);
   assert.match(styles, /\.mini-target-cell\.is-auto-target/);

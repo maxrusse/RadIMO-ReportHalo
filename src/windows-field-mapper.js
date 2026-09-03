@@ -19,7 +19,7 @@ const DEFAULT_INCLUDE_RULES = [
   { key: "report", label: "Befund", patterns: ["*befund*"] },
   { key: "summary", label: "Beurteilung", patterns: ["*beurteilung*", "*impression*"] },
   { key: "clinical_info", label: "Klinische Angaben", patterns: ["*klinische angabe*", "*anamnese*", "*indikation*"] },
-  { key: "referrer_notes", label: "Zuweiserangaben", patterns: ["*zuweis*", "*überweisung*", "*refer*"] },
+  { key: "referrer_notes", label: "Zuweiserangaben", patterns: ["*zuweis*", "*überweisung*", "*einweiser*", "*referenten*"] },
 ];
 
 const DEFAULT_EXCLUDE_PATTERNS = [
@@ -33,6 +33,10 @@ const DEFAULT_EXCLUDE_PATTERNS = [
   "*patienten-id*",
   "*patientennummer*",
   "*versichertennummer*",
+  "*patientenname*",
+  "*patname*",
+  "*nachname*",
+  "*vorname*",
 ];
 
 const DEFAULT_INCLUDE_TEXT = DEFAULT_INCLUDE_RULES
@@ -195,7 +199,7 @@ function fieldIdentities(field) {
     field?.automationId,
     field?.helpText,
     field?.labeledBy,
-    field?.className,
+    ...(Array.isArray(field?.containerNames) ? field.containerNames : []),
   ];
   return [...new Set(values.map((value) => cleanText(value, MAX_PATTERN_CHARS)).filter(Boolean))];
 }
@@ -246,12 +250,14 @@ function safeFieldSummary(field, windowHandle = "") {
     helpText: cleanText(field?.helpText, 180),
     labeledBy: cleanText(field?.labeledBy, 180),
     className: cleanText(field?.className, 160),
+    containerNames: Array.isArray(field?.containerNames) ? field.containerNames.map((value) => cleanText(value, 180)).filter(Boolean).slice(0, 5) : [],
     frameworkId: cleanText(field?.frameworkId, 80),
     controlType: cleanText(field?.controlType, 100),
     isReadOnly: field?.isReadOnly === true,
     isPassword: field?.isPassword === true,
     supportsValue: field?.supportsValue === true,
     supportsText: field?.supportsText === true,
+    supportsWrite: field?.supportsWrite === true,
     readStrategy: cleanText(field?.readStrategy, 80),
     hasValue: typeof field?.value === "string" && Boolean(field.value.trim()),
     valueChars: typeof field?.value === "string" ? field.value.length : Number(field?.valueChars) || 0,

@@ -4,26 +4,36 @@ const {
   scanSafeFieldWindow,
   writeSafeFocusedField,
 } = require("./windows-safe-field-bridge");
+const { blockedFieldAccessResult, experimentalUiaEnabled } = require("./field-access-policy");
 
 // The product field path is deliberately limited to clipboard or the narrow
 // UIA bridge. Native window injection, keystroke replay, and PowerShell
 // execution-policy bypasses are not part of the released client.
 async function readFocusedField(options = {}) {
-  if (options.accessMode === "clipboard") return { ok: false, error: "clipboard-source-required", accessibility: "clipboard" };
+  const mode = options.accessMode;
+  if (mode !== "uia") return blockedFieldAccessResult({ operation: "field-read", clipboard: mode === "clipboard" });
+  if (!experimentalUiaEnabled()) return blockedFieldAccessResult({ operation: "field-read" });
   return readSafeFocusedField(options);
 }
 
 async function writeFocusedField(options = {}) {
+  const mode = options.accessMode || options.target?.accessMode;
+  if (mode !== "uia") return blockedFieldAccessResult({ operation: "field-write", clipboard: mode === "clipboard" });
+  if (!experimentalUiaEnabled()) return blockedFieldAccessResult({ operation: "field-write" });
   return writeSafeFocusedField(options);
 }
 
 async function scanFieldWindow(options = {}) {
-  if (options.accessMode === "clipboard") return { ok: false, error: "clipboard-diagnostic-disabled", accessibility: "clipboard" };
+  const mode = options.accessMode;
+  if (mode !== "uia") return blockedFieldAccessResult({ operation: "field-scan", clipboard: mode === "clipboard" });
+  if (!experimentalUiaEnabled()) return blockedFieldAccessResult({ operation: "field-scan" });
   return scanSafeFieldWindow(options);
 }
 
 async function focusMappedField(options = {}) {
-  if (options.accessMode === "clipboard") return { ok: false, verified: false, error: "clipboard-target-disabled", accessibility: "clipboard" };
+  const mode = options.accessMode || options.target?.accessMode;
+  if (mode !== "uia") return blockedFieldAccessResult({ operation: "field-focus", clipboard: mode === "clipboard" });
+  if (!experimentalUiaEnabled()) return blockedFieldAccessResult({ operation: "field-focus" });
   return focusSafeMappedField(options);
 }
 

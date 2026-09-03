@@ -28,7 +28,7 @@
         <div class="hero-copy">
           <p class="eyebrow">Windows companion for radiology reporting</p>
           <h1>Small controls for the report field you already use.</h1>
-          <p class="lead">ReportHalo stays beside the active RIS, Word, or editor field. It works with an explicit clipboard workflow across DMO/RIS installations and can test accessible UIA fields when available, while keeping the source application authoritative.</p>
+          <p class="lead">ReportHalo stays beside the active RIS, Word, or editor field. It works with an explicit clipboard workflow across DMO/RIS installations; an experimental UIA diagnostic can be enabled separately when an installation exposes accessible fields.</p>
           <div class="actions">
             <a class="button primary" href="#controls">See the controls</a>
             <a class="button ghost" href="https://github.com/maxrusse/RadIMO-ReportHalo">Open the repository</a>
@@ -73,7 +73,7 @@
           <p class="section-lead">The labels below describe the current German-language workflow. The closed Orb exposes the same functions through icons, tooltips, and accessible names.</p>
         </div>
         <div class="control-grid">
-          <article><span class="control-position">Top left</span><h3>Target field</h3><p>Import copied DMO/RIS text or test the focused UIA field; drop text here as a local source. The small X releases the target or clears the source.</p></article>
+          <article><span class="control-position">Top left</span><h3>Target field</h3><p>Import copied DMO/RIS text; an experimental build can test the focused UIA field. Drop text here as a local source. The small X releases the target or clears the source.</p></article>
           <article><span class="control-position">Top middle</span><h3>Write clearly</h3><p>Rephrase existing report text for clarity without adding unsupported facts.</p></article>
           <article><span class="control-position">Top right</span><h3>Dictate</h3><p>Record a short segment, transcribe it, and keep the transcript pending until insertion is requested.</p></article>
           <article><span class="control-position">Middle left</span><h3>Proofread</h3><p>Correct spelling, grammar, punctuation, dictation artifacts, and report style. Medical or logical concerns are not silently changed.</p></article>
@@ -109,7 +109,7 @@
           <h2>Three steps before a field changes.</h2>
         </div>
         <ol class="workflow">
-          <li><span>01</span><div><h3>Bring in the text</h3><p>Copy the marked DMO/RIS text and import it explicitly, or test the focused UIA field when the installation exposes it.</p></div></li>
+          <li><span>01</span><div><h3>Bring in the text</h3><p>Copy the marked DMO/RIS text and import it explicitly. A developer can enable the experimental UIA diagnostic when the installation exposes an accessible field.</p></div></li>
           <li><span>02</span><div><h3>Run one action</h3><p>Use proofreading, writing, structure, assessment, or dictation on the supplied text.</p></div></li>
           <li><span>03</span><div><h3>Review or transfer</h3><p>Inspect the result in the editor or diff view, then explicitly insert it if it is suitable.</p></div></li>
         </ol>

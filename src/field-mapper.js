@@ -5,9 +5,9 @@ const DEFAULT_INCLUDE = [
   "report = *befund*",
   "summary = *beurteilung* | *impression*",
   "clinical_info = *klinische angabe* | *anamnese* | *indikation*",
-  "referrer_notes = *zuweis* | *überweisung* | *refer*",
+  "referrer_notes = *zuweis* | *überweisung* | *einweiser* | *referenten*",
 ].join("\n");
-const DEFAULT_EXCLUDE = ["*patient*", "*geburtsdatum*", "*geburt*", "*adresse*", "*telefon*", "*versicherung*", "*fallnummer*", "*patienten-id*", "*patientennummer*", "*versichertennummer*"].join("\n");
+const DEFAULT_EXCLUDE = ["*patient*", "*geburtsdatum*", "*geburt*", "*adresse*", "*telefon*", "*versicherung*", "*fallnummer*", "*patienten-id*", "*patientennummer*", "*versichertennummer*", "*patientenname*", "*patname*", "*nachname*", "*vorname*"].join("\n");
 const $ = (id) => document.getElementById(id);
 
 function setStatus(value, error = false) {

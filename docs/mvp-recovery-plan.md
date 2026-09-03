@@ -12,7 +12,7 @@ The Orb uses a 3×3 action matrix with compact right/bottom controls. The top-le
 - The renderer now resolves the requested fast model from the live catalog, prefers `gpt-5.3-codex-spark` when advertised, and falls back to the supported `gpt-5.6-luna` with low reasoning effort.
 - The helper's `Diktieren` action relied on Chromium's optional `SpeechRecognition` interface. The packaged Electron runtime does not provide a dependable transcription service, so the control commonly reported that dictation was unavailable.
 - The old helper and desktop exposed many overlapping element IDs, modes, and transfer routes. The 0.2.10 pass removes the visible large desktop surface, keeps one action path per function, and attaches temporary panels to the Orb.
-- Active-field capture has an explicit clipboard-first default. The opt-in UIA path can use the focused or cursor-point element, prefers `ValuePattern`, uses `TextPattern` for explicit selection or document text, and preserves the target identity for guarded write-back. Native window injection and keystroke-replay fallbacks are not included.
+- Active-field capture has an explicit clipboard-first default. The developer-only UIA path is disabled in normal releases; when explicitly enabled it can use the focused or cursor-point element, prefers `ValuePattern`, uses `TextPattern` for explicit selection or document text, and preserves the target identity for guarded write-back. Native window injection and keystroke-replay fallbacks are not included.
 - The previous automated test and smoke harness was too brittle for the current UI iteration. It is retired for now and stored outside the repository in `work/_archive/radimoagent_cleanup_20260826/tests-retired-20260826/` so it can be revisited without remaining part of the release check.
 
 ## Current architecture
@@ -42,7 +42,7 @@ Status: implemented through the 0.2.10 design pass.
 
 - Use native frameless-window dragging and bounded position persistence; avoid renderer drag loops.
 - Keep one compact startup surface with a fixed base size and panel-specific native expansion.
-- Provide clipboard import as the dependable cross-RIS path, plus opt-in focused-field capture, explicit selection capture, target identity, safe UIA value writes, clipboard fallback, and read-back verification.
+- Provide clipboard import as the dependable cross-RIS path. Keep focused-field capture, explicit selection capture, target identity, safe UIA value writes, clipboard fallback, and read-back verification behind the developer-only experimental UIA flag.
 - Keep visible recording level, elapsed time, cancellation, and segmented long-dictation handling.
 - Attach Chat, Textquelle, Context, Review, and Account surfaces to the Orb instead of creating a second window; active side buttons close their own panel.
 - Show the last result as complete editable Text with an optional character-level before/after Diff; assessment keeps the source visible and appends only its labelled `Beurteilung: …` addendum.

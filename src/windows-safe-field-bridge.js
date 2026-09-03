@@ -72,6 +72,22 @@ function Nearby-Label($element) {
   } catch { }
   return ''
 }
+function Container-Names($element) {
+  $names = New-Object 'System.Collections.Generic.List[System.String]'
+  $walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
+  $currentElement = $element
+  for ($depth = 0; $depth -lt 5 -and $null -ne $currentElement; $depth++) {
+    try { $currentElement = $walker.GetParent($currentElement) } catch { break }
+    if ($null -eq $currentElement) { break }
+    try {
+      $current = $currentElement.Current
+      $controlType = [string]$current.ControlType.ProgrammaticName
+      $name = Clean $current.Name 240
+      if ($name -and $controlType -match '(?i)Group|Pane|Tab|Header') { [void]$names.Add($name) }
+    } catch { }
+  }
+  return $names.ToArray()
+}
 function Add-Candidate($list, $element) {
   if ($null -eq $element) { return }
   $runtimeId = Runtime-Id $element
@@ -180,6 +196,7 @@ function Element-Info($element, [Int64]$requestedWindow = 0) {
     className = Clean $current.ClassName 180
     frameworkId = Clean $current.FrameworkId 80
     controlType = Clean ($current.ControlType.ProgrammaticName) 120
+    containerNames = @(Container-Names $element)
     isEnabled = [bool]$current.IsEnabled
     isOffscreen = [bool]$current.IsOffscreen
     isPassword = [bool]$current.IsPassword
@@ -208,7 +225,8 @@ function Read-Focused {
       if ($read.error -eq 'no-selection' -and $null -eq $selectionFailure) { $selectionFailure = $info }
       continue
     }
-    $fieldLike = $read.strategy -eq 'ValuePattern' -or $info.controlType -match '(?i)Edit|Document|ComboBox|Custom'
+    if (-not $info.isEnabled -or $info.isOffscreen) { continue }
+    $fieldLike = $info.controlType -match '(?i)Edit|Document|ComboBox|Custom'
     if (-not $fieldLike) { continue }
     $textBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$read.text))
     Emit (@{ ok = $true; textBase64 = $textBase64; hash = $null; accessibility = 'uia'; readable = $true; supportsWrite = $read.supportsWrite; approximate = ($read.strategy -ne 'ValuePattern'); replaceAll = ($read.strategy -ne 'TextPattern.Selection'); strategy = $read.strategy } + $info)
@@ -302,6 +320,7 @@ function Write-Focused([string]$text) {
   $controlWindow = Requested-Int64 'RADIMO_FIELD_CONTROL_WINDOW'
   if ($window -le 0) { Emit @{ ok = $false; verified = $false; error = 'no-target-window'; accessibility = 'uia' }; return }
   if ($env:RADIMO_FIELD_INSERT_AT_CURSOR -eq 'true') { Emit @{ ok = $false; verified = $false; error = 'cursor-insertion-requires-manual-paste'; accessibility = 'uia' }; return }
+  if ($env:RADIMO_FIELD_REPLACE_ALL -ne 'true') { Emit @{ ok = $false; verified = $false; error = 'selection-write-requires-manual-paste'; accessibility = 'uia' }; return }
   $root = $null
   try { $root = [System.Windows.Automation.AutomationElement]::FromHandle([IntPtr]::new($window)) } catch { }
   $element = Find-TargetElement $root $env:RADIMO_FIELD_RUNTIME_ID $env:RADIMO_FIELD_AUTOMATION_ID $env:RADIMO_FIELD_CONTROL_TYPE $env:RADIMO_FIELD_NAME $controlWindow
@@ -432,6 +451,22 @@ function Nearby-Label($element) {
   } catch { }
   return ''
 }
+function Container-Names($element) {
+  $names = New-Object 'System.Collections.Generic.List[System.String]'
+  $walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
+  $currentElement = $element
+  for ($depth = 0; $depth -lt 5 -and $null -ne $currentElement; $depth++) {
+    try { $currentElement = $walker.GetParent($currentElement) } catch { break }
+    if ($null -eq $currentElement) { break }
+    try {
+      $current = $currentElement.Current
+      $controlType = [string]$current.ControlType.ProgrammaticName
+      $name = Clean $current.Name 240
+      if ($name -and $controlType -match '(?i)Group|Pane|Tab|Header') { [void]$names.Add($name) }
+    } catch { }
+  }
+  return $names.ToArray()
+}
 function Scan-Window {
   $started = [Diagnostics.Stopwatch]::StartNew()
   try { $config = ([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:RADIMO_FIELD_MAPPER_CONFIG_B64)) | ConvertFrom-Json) } catch { Emit @{ ok = $false; error = 'invalid-field-mapper-config'; accessibility = 'uia' }; return }
@@ -472,7 +507,7 @@ function Scan-Window {
     try { $hasText = $element.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern, [ref]$textPattern) } catch { $hasText = $false }
     if (-not $hasValue -and -not $hasText) { continue }
     $controlType = Clean ($current.ControlType.ProgrammaticName) 120
-    $isTextControl = $controlType -match '(?i)Edit|Document|ComboBox|Custom' -or ($hasValue -and $controlType -notmatch '(?i)Button|CheckBox|RadioButton|Hyperlink|MenuItem|ListItem|TreeItem|TabItem')
+    $isTextControl = $controlType -match '(?i)Edit|Document|ComboBox|Custom'
     if (-not $isTextControl) { continue }
     $textFields++
     $labeledByName = ''
@@ -481,7 +516,10 @@ function Scan-Window {
     $automationId = Clean $current.AutomationId 180
     $helpText = Clean $current.HelpText 240
     $className = Clean $current.ClassName 180
-    $identities = @($labeledByName, $name, $automationId, $helpText, $className) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
+    $containerNames = @()
+    try { $containerNames = @(Container-Names $element) } catch { }
+    $identityCandidates = @($labeledByName, $name, $automationId, $helpText) + $containerNames
+    $identities = @($identityCandidates | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
     $isPassword = $false
     try { $isPassword = [bool]$current.IsPassword } catch { }
     $excluded = $isPassword
@@ -508,6 +546,7 @@ function Scan-Window {
       helpText = $helpText
       labeledBy = $labeledByName
       className = $className
+      containerNames = @($containerNames)
       frameworkId = Clean $current.FrameworkId 80
       controlType = $controlType
       processId = [int]$current.ProcessId
@@ -517,6 +556,7 @@ function Scan-Window {
       isOffscreen = [bool]$current.IsOffscreen
       isPassword = $isPassword
       isReadOnly = $isReadOnly
+      supportsWrite = $(if ($null -eq $isReadOnly) { $false } else { -not [bool]$isReadOnly })
       supportsValue = [bool]$hasValue
       supportsText = [bool]$hasText
       readStrategy = $(if ($hasValue) { 'ValuePattern' } elseif ($hasText) { 'TextPattern' } else { '' })

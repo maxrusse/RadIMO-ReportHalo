@@ -56,6 +56,7 @@ const state = {
   panelReturnFocus: null,
   contextMenuReturnFocus: null,
   connectionOnline: false,
+  experimentalUia: false,
   cubeMode: "compact",
 };
 
@@ -90,7 +91,7 @@ const FIELD_MAPPER_DEFAULT_INCLUDE = [
   "report = *befund*",
   "summary = *beurteilung* | *impression*",
   "clinical_info = *klinische angabe* | *anamnese* | *indikation*",
-  "referrer_notes = *zuweis* | *überweisung* | *refer*",
+  "referrer_notes = *zuweis* | *überweisung* | *einweiser* | *referenten*",
 ].join("\n");
 const FIELD_MAPPER_DEFAULT_EXCLUDE = [
   "*patient*",
@@ -103,10 +104,14 @@ const FIELD_MAPPER_DEFAULT_EXCLUDE = [
   "*patienten-id*",
   "*patientennummer*",
   "*versichertennummer*",
+  "*patientenname*",
+  "*patname*",
+  "*nachname*",
+  "*vorname*",
 ].join("\n");
 const ACTION_PROMPT_DEFAULTS = {
   write: `Formuliere nur den vorhandenen Text klarer. Keine neuen Informationen und keine inhaltlichen Ergänzungen. Gib in text den vollständigen Textblock zurück; er ist für die Ersetzung des aktiven Feldes bestimmt.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
-  correction: `Medizinisches Lektorat. Korrigiere und ersetze ausschließlich relevante Rechtschreib-, Grammatik-, Interpunktions- und erkennbare Diktatfehler im vorhandenen Text. Überschriften und OPB, sofern vorhanden, unverändert belassen. Keine neuen Inhalte, keine stilistische Umdeutung und keine Bedeutungsänderung. Medizinische oder logische Auffälligkeiten ausschließlich unter dem Text als Hinweise nennen; nicht korrigieren. Gib in text genau einen vollständigen Writing Block mit dem kompletten korrigierten Text ohne Zusatzformatierung zurück, nicht nur einzelne Ausschnitte. Liste danach nur die tatsächlich vorgenommenen Änderungen auf.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
+  correction: `Medizinisches Lektorat. Korrigiere und ersetze ausschließlich relevante Rechtschreib-, Grammatik-, Interpunktions- und erkennbare Diktatfehler im vorhandenen Text. Überschriften und OPB, sofern vorhanden, unverändert belassen. Keine neuen Inhalte, keine stilistische Umdeutung und keine Bedeutungsänderung. Medizinische oder logische Auffälligkeiten ausschließlich unter dem Text als Hinweise nennen; nicht korrigieren. Gib in text genau einen vollständigen Writing Block mit dem kompletten korrigierten Text ohne Zusatzformatierung zurück, nie nur einzelne Ausschnitte. Wenn keine Korrektur nötig ist, gib den vollständigen Originaltext unverändert zurück und setze changes auf []. Liste danach nur die tatsächlich vorgenommenen Änderungen auf.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
   structure: `Ordne nur den vorhandenen Text besser. Nichts ergänzen und keine fehlenden Bausteine erfinden. Gib in text den vollständigen neu geordneten Textblock zurück; er ist für die Ersetzung des aktiven Feldes bestimmt.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
   assessment: `Fasse nur die vorhandenen Aussagen knapp als Beurteilung. Unsicherheiten und Lücken bleiben sichtbar. Gib in text nur den ergänzenden Inhalt ohne Überschrift zurück; ReportHalo setzt beim Übernehmen die klare Kennzeichnung "Beurteilung: " davor und hängt ihn unterhalb des vorhandenen Textes an.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
   discussion: `Chat: Antworte knapp in 1–4 kurzen Absätzen oder höchstens fünf Stichpunkten. Erkläre, frage nach und diskutiere nur anhand des vorhandenen Textes. Du schreibst nie in ein externes Feld. Wenn der Nutzer ausdrücklich einen korrigierten, umformulierten oder wiederverwendbaren Text verlangt, gib ein JSON-Objekt mit answer, text, changes, unclear, logicIssues und medicalIssues zurück; text ist dann der vollständige Textblock zur späteren Übernahme. Bei reiner Diskussion antworte als normalen kurzen Text.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
@@ -125,7 +130,7 @@ const FIELD_ACCESS_MODES = {
     description: "Kein Fremdfenster-Zugriff. Im RIS/DMO markieren, Strg+C drücken und den Text hier ausdrücklich übernehmen.",
   },
   uia: {
-    label: "UIA-Feldzugriff · testen",
+    label: "UIA-Feldzugriff · experimentell",
     description: "Nur auf ausdrücklichen Klick: der Helper wird kurz ausgeblendet und liest ausschließlich ValuePattern/TextPattern des fokussierten UIA-Elements. Nicht jedes DMO-/RIS-Feld stellt diesen Zugriff bereit.",
   },
 };
@@ -448,7 +453,7 @@ function showMiniContextMenu(event, targetId = "miniCore") {
   }
   const autoSelect = $("miniContextAutoSelect");
   if (autoSelect) {
-    autoSelect.classList.toggle("hidden", !targetMenu);
+    autoSelect.classList.toggle("hidden", !targetMenu || !state.experimentalUia);
     autoSelect.textContent = `${fieldMapperTargetLabel()} automatisch wählen`;
     autoSelect.title = "Eine eindeutig passende, konfigurierte Textfeldregel als Ziel verwenden";
   }
@@ -468,6 +473,8 @@ function showMiniContextMenu(event, targetId = "miniCore") {
   if (quit) quit.classList.toggle("hidden", definition.kind !== "core");
   const cubeSize = $("miniContextCubeSize");
   if (cubeSize) cubeSize.classList.toggle("hidden", definition.kind !== "core");
+  const fieldMapper = $("miniContextFieldMapper");
+  if (fieldMapper) fieldMapper.classList.toggle("hidden", !state.experimentalUia);
   syncCubeModeControl();
   menu.classList.remove("hidden");
   const core = $("miniCore");
@@ -554,7 +561,7 @@ function currentHelperText() {
 }
 
 function normalizeFieldAccessMode(value) {
-  return Object.prototype.hasOwnProperty.call(FIELD_ACCESS_MODES, value) ? value : "clipboard";
+  return value === "uia" && state.experimentalUia ? "uia" : "clipboard";
 }
 
 function fieldAccessMode() {
@@ -563,6 +570,20 @@ function fieldAccessMode() {
 
 function fieldAccessDescription(mode = fieldAccessMode()) {
   return FIELD_ACCESS_MODES[normalizeFieldAccessMode(mode)]?.description || FIELD_ACCESS_MODES.clipboard.description;
+}
+
+function releaseUiaTargetForClipboard() {
+  state.fieldAccessMode = "clipboard";
+  state.focusedTarget = null;
+  state.fieldLocked = false;
+  state.transferNeedsReview = null;
+  state.lastResultApplied = false;
+  state.fieldMapperAutoSelection = null;
+  state.fieldMapperAutoTarget = false;
+  saveFieldMapperPreferences();
+  renderFieldMapperReport(null);
+  void window.radimoAgent.patchWorkflow({ phase: "idle", target: "text", targetIdentity: null });
+  syncDiscussionScope();
 }
 
 function hasLockedTarget() {
@@ -889,18 +910,19 @@ function setMiniInsertState() {
     review.setAttribute("aria-label", review.title);
   }
   const resultTargetChanged = Boolean(state.lastResultTarget?.windowHandle && (!hasTarget || !sameTargetIdentity(state.focusedTarget, state.lastResultTarget)));
-  const resultTransferLabel = reviewTransfer?.fullReplacement ? "Vollständiger bearbeiteter Text wird ersetzt" : state.lastResultTask === "assessment" ? "Beurteilung wird ergänzt" : "Ergebnis ersetzt";
+  const selectionTarget = hasTarget && state.focusedTarget?.selectionOnly === true;
+  const resultTransferLabel = selectionTarget ? "Markierte Auswahl wird nicht als Vollfeld überschrieben" : reviewTransfer?.fullReplacement ? "Vollständiger bearbeiteter Text wird ersetzt" : state.lastResultTask === "assessment" ? "Beurteilung wird ergänzt" : "Ergebnis ersetzt";
   text("miniReviewTarget", resultTargetChanged ? "Zielfeld geändert · Ergebnis nicht automatisch übernehmen." : hasTarget ? `${resultTransferLabel} · Zielfeld: ${helperFieldLabel()}` : "Kein aktives Zielfeld · Ergebnis bleibt lokal.");
   const reviewInsert = $("miniReviewInsert");
   const reviewReady = hasReview && reviewInsertable && hasTarget && !readOnly && !transferBlocked && !resultTargetChanged && !state.manualReviewPending && !state.transferInFlight && !state.activeTask && !state.lastResultApplied;
   if (reviewInsert) {
     reviewInsert.disabled = !reviewReady;
-    reviewInsert.title = resultTargetChanged ? "Zielfeld geändert · Aktion erneut starten" : transferBlocked ? "Übertragung im RIS prüfen oder Zielfeld neu aktivieren" : readOnly ? "Zielfeld ist schreibgeschützt" : state.manualReviewPending ? "Zuerst den Entwurf im Editor prüfen" : "Geprüftes Ergebnis ins Zielfeld übernehmen";
+    reviewInsert.title = resultTargetChanged ? "Zielfeld geändert · Aktion erneut starten" : transferBlocked ? "Übertragung im RIS prüfen oder Zielfeld neu aktivieren" : readOnly ? "Zielfeld ist schreibgeschützt" : state.manualReviewPending ? "Zuerst den Entwurf im Editor prüfen" : selectionTarget ? "Ergebnis kopieren und an der markierten RIS-Auswahl einfügen" : "Geprüftes Ergebnis ins Zielfeld übernehmen";
     reviewInsert.setAttribute("aria-label", reviewInsert.title);
   }
   button.disabled = !ready;
   button.classList.toggle("is-ready", ready);
-  button.title = transferBlocked ? "Übertragung im RIS prüfen oder Zielfeld neu aktivieren" : readOnly ? "Zielfeld ist schreibgeschützt" : state.manualReviewPending ? "Nach manueller Prüfung ins Zielfeld übernehmen" : hasPending ? "Diktat ins Arbeitsfeld einsetzen" : state.lastResultTask === "assessment" ? "Beurteilung im Arbeitsfeld ergänzen" : "Geprüftes Ergebnis im Arbeitsfeld anwenden";
+  button.title = transferBlocked ? "Übertragung im RIS prüfen oder Zielfeld neu aktivieren" : readOnly ? "Zielfeld ist schreibgeschützt" : state.manualReviewPending ? "Nach manueller Prüfung ins Zielfeld übernehmen" : selectionTarget ? "Ergebnis kopieren und an der markierten RIS-Auswahl einfügen" : hasPending ? "Diktat ins Arbeitsfeld einsetzen" : state.lastResultTask === "assessment" ? "Beurteilung im Arbeitsfeld ergänzen" : "Geprüftes Ergebnis im Arbeitsfeld anwenden";
   button.setAttribute("aria-label", button.title);
   const use = icon.querySelector("use");
   if (use) use.setAttribute("href", "#icon-insert");
@@ -917,6 +939,7 @@ function rememberFocusedField(focused, { preserveFieldMap = false, accessMode = 
     accessMode: normalizeFieldAccessMode(accessMode),
     expectedFieldHash: focused.hash || null,
     replaceAll: focused.strategy !== "TextPattern.Selection",
+    selectionOnly: focused.strategy === "TextPattern.Selection",
   };
   state.fieldLocked = true;
   setHelperFieldType(inferHelperFieldType(focused));
@@ -1094,7 +1117,7 @@ function recentDiscussionContext() {
 
 const TEXT_ACTION_OUTPUT_CONTRACT = [
   "FELDAKTION: Gib ausschließlich das vollständige JSON-Ergebnis im vorgegebenen Schema zurück.",
-  "text ist bei Lektorat, Formulierung und Strukturierung genau ein vollständiger Writing Block und der vollständige Ersatztext für das lokale Textfeld. Bei Beurteilung ist text ausschließlich der ergänzende Inhalt; die Oberfläche kennzeichnet ihn als Beurteilung und hängt ihn unterhalb an. Keine Markdown-Zäune, keine Einleitung und keine Änderungslisten innerhalb von text. changes nennt nur tatsächlich vorgenommene Sprach-, Rechtschreib-, Grammatik- oder Lektoratsänderungen; unclear, logicIssues und medicalIssues sind kurze Hinweise zum Ausgangstext und werden nicht geändert. Keine neuen medizinischen Fakten.",
+  "text ist bei Lektorat, Formulierung und Strukturierung genau ein vollständiger Writing Block und der vollständige Ersatztext für das lokale Textfeld. Bei Lektorat muss text den gesamten Ausgangstext enthalten, auch wenn nur ein Wort geändert wurde; bei keiner Änderung ist text eine unveränderte Kopie. Bei Beurteilung ist text ausschließlich der ergänzende Inhalt; die Oberfläche kennzeichnet ihn als Beurteilung und hängt ihn unterhalb an. Keine Markdown-Zäune, keine Einleitung und keine Änderungslisten innerhalb von text. changes nennt nur tatsächlich vorgenommene Sprach-, Rechtschreib-, Grammatik- oder Lektoratsänderungen; unclear, logicIssues und medicalIssues sind kurze Hinweise zum Ausgangstext und werden nicht geändert. Keine neuen medizinischen Fakten.",
 ].join(" ");
 
 const PROPOSAL_OUTPUT_CONTRACT = [
@@ -1497,6 +1520,15 @@ function normalizeActionResultText(task, value) {
   return withoutHeading ? `Beurteilung: ${withoutHeading}` : "Beurteilung:";
 }
 
+function likelyCompleteCorrection(source, result) {
+  const original = String(source || "").trim();
+  const corrected = String(result || "").trim();
+  if (!original || original.length < 120) return true;
+  if (!corrected || corrected.length < Math.max(80, Math.floor(original.length * 0.55))) return false;
+  if (/(?:\.\.\.|…)\s*$/.test(corrected) && !/(?:\.\.\.|…)\s*$/.test(original)) return false;
+  return !/\[(?:gekürzt|ausgelassen|truncated|cut)\]/i.test(corrected);
+}
+
 function assessmentReviewText(source, addendum) {
   return [String(source || "").trim(), String(addendum || "").trim()].filter(Boolean).join("\n\n");
 }
@@ -1659,6 +1691,16 @@ async function insertTextIntoField(value, { isDictation = false, automatic = fal
     helperSetStatus("Das Ergebnis gehört zu einem anderen Arbeitsfeld. Bitte die Aktion erneut starten.", "Zielfeld geändert");
     return null;
   }
+  if (target.selectionOnly && !isDictation) {
+    try {
+      await window.radimoAgent.writeClipboard(textToInsert);
+      helperSetStatus("Die markierte Auswahl wird nicht als vollständiges Feld überschrieben. Ergebnis kopiert; im RIS an der Auswahl mit Strg+V einsetzen.", "Manuell einfügen");
+      return { ok: true, verified: false, copied: true, selectionPaste: true };
+    } catch (error) {
+      helperSetStatus(error.message || "Ergebnis konnte nicht in die Zwischenablage kopiert werden.", "Prüfung nötig");
+      return null;
+    }
+  }
   if (target.supportsWrite === false) {
     helperSetStatus("Das aktive Arbeitsfeld ist schreibgeschützt.", "Nur lesen");
     return null;
@@ -1815,8 +1857,10 @@ async function applyCompletedAgentResult() {
     return;
   }
 
-  const { meta } = parsed;
+  const meta = { ...parsed.meta, changes: [...parsed.meta.changes], unclear: [...parsed.meta.unclear], logicIssues: [...parsed.meta.logicIssues], medicalIssues: [...parsed.meta.medicalIssues] };
   const generatedText = normalizeActionResultText(task, parsed.text);
+  const incompleteCorrection = task === "correction" && !likelyCompleteCorrection(state.lastSourceText, generatedText);
+  if (incompleteCorrection) meta.unclear = normalizeMetaList(["Das Lektoratsergebnis wirkt unvollständig; es wurde nicht übertragen.", ...meta.unclear]);
   const result = task === "assessment" ? assessmentReviewText(state.lastSourceText, generatedText) : generatedText;
   state.lastAgentResult = result;
   state.lastResultInsertText = generatedText;
@@ -1828,7 +1872,7 @@ async function applyCompletedAgentResult() {
   let response = null;
   const appended = task === "assessment";
   const proposal = task === "proposal";
-  const manualReview = proposal || Boolean(state.actionSettings?.[task]?.manualReview);
+  const manualReview = proposal || incompleteCorrection || Boolean(state.actionSettings?.[task]?.manualReview);
   const operationTarget = state.lastResultTarget;
   const targetUnchanged = Boolean(operationTarget?.windowHandle && state.fieldLocked && sameTargetIdentity(state.focusedTarget, operationTarget));
   const automaticTransferText = appended ? generatedText : result;
@@ -1838,6 +1882,7 @@ async function applyCompletedAgentResult() {
     state.manualReviewPending = true;
     openResultEditor(result);
   }
+  if (incompleteCorrection) helperSetStatus("Das Lektoratsergebnis wirkt unvollständig und wurde nicht übertragen. Bitte im Editor prüfen oder die Aktion erneut starten.", "Prüfung nötig");
   const clipboardPrepared = response?.copied === true;
   const transferred = Boolean(response?.ok && !clipboardPrepared);
   const verified = transferred && response.verified === true;
@@ -2065,36 +2110,60 @@ function preferredFieldMapperMatch(report) {
 function loadFieldMapperPreferences() {
   let stored = {};
   try { stored = JSON.parse(window.localStorage.getItem(FIELD_MAPPER_PREFERENCE_STORAGE_KEY) || "{}"); } catch { stored = {}; }
-  state.fieldMapperAutoTarget = stored.autoTarget === true;
+  state.fieldMapperAutoTarget = state.experimentalUia && stored.autoTarget === true;
   const toggle = $("fieldMapperAutoTarget");
   if (toggle) toggle.checked = state.fieldMapperAutoTarget;
 }
 
 function loadFieldAccessPreference() {
-  let stored = {};
-  try { stored = JSON.parse(window.localStorage.getItem(FIELD_ACCESS_STORAGE_KEY) || "{}"); } catch { stored = {}; }
-  state.fieldAccessMode = normalizeFieldAccessMode(stored.mode);
+  // UIA is never restored from storage. It must be enabled and selected again
+  // for the current session, so an old preference cannot trigger automation
+  // after an update.
+  state.fieldAccessMode = "clipboard";
   const select = $("fieldAccessMode");
   if (select) select.value = state.fieldAccessMode;
   text("fieldAccessStatus", fieldAccessDescription());
 }
 
+function applyFieldAccessCapabilities(payload = {}) {
+  const enabled = payload?.experimentalUia === true;
+  const previousMode = state.fieldAccessMode;
+  state.experimentalUia = enabled;
+  const select = $("fieldAccessMode");
+  const option = select?.querySelector('option[value="uia"]');
+  if (option) {
+    option.hidden = !enabled;
+    option.disabled = !enabled;
+  }
+  for (const id of ["scanFieldMapper", "inspectFieldMapper", "fieldMapperAutoTarget"]) {
+    const control = $(id);
+    if (control) control.disabled = !enabled;
+  }
+  const fieldMapperMenu = $("miniContextFieldMapper");
+  if (fieldMapperMenu && !enabled) fieldMapperMenu.classList.add("hidden");
+  if (!enabled && previousMode === "uia") releaseUiaTargetForClipboard();
+  state.fieldAccessMode = normalizeFieldAccessMode(state.fieldAccessMode);
+  if (select) select.value = state.fieldAccessMode;
+  text("fieldAccessStatus", enabled
+    ? fieldAccessDescription()
+    : "Zwischenablage-Modus aktiv. UIA-Feldsuche ist in dieser Produktionsversion deaktiviert; sie startet keine Fremdfenster-Automation.");
+  if (!enabled) text("fieldMapperStatus", "UIA-Feldsuche ist in dieser Produktionsversion deaktiviert. DMO/RIS-Text bitte markieren, Strg+C drücken und ausdrücklich übernehmen.");
+  if (!enabled) text("fieldMapperTargetStatus", "Zwischenablage und Drag-and-drop bleiben verfügbar.");
+}
+
 function saveFieldAccessPreference(value) {
   const previousMode = fieldAccessMode();
   state.fieldAccessMode = normalizeFieldAccessMode(value);
-  try { window.localStorage.setItem(FIELD_ACCESS_STORAGE_KEY, JSON.stringify({ mode: state.fieldAccessMode })); } catch { /* optional preference */ }
+  const persistedMode = state.fieldAccessMode === "uia" ? "clipboard" : state.fieldAccessMode;
+  try { window.localStorage.setItem(FIELD_ACCESS_STORAGE_KEY, JSON.stringify({ mode: persistedMode })); } catch { /* optional preference */ }
   const select = $("fieldAccessMode");
   if (select) select.value = state.fieldAccessMode;
   text("fieldAccessStatus", fieldAccessDescription());
   if (state.fieldAccessMode === "clipboard" && previousMode !== "clipboard" && hasLockedTarget()) {
-    state.focusedTarget = null;
-    state.fieldLocked = false;
-    state.transferNeedsReview = null;
-    state.lastResultApplied = false;
-    renderFieldMapperReport(null);
-    void window.radimoAgent.patchWorkflow({ phase: "idle", target: "text", targetIdentity: null });
-    syncDiscussionScope();
+    releaseUiaTargetForClipboard();
     helperSetStatus("UIA-Zielfeld gelöst. DMO/RIS-Text jetzt kopieren und ausdrücklich übernehmen.", "Zwischenablage empfohlen");
+  } else if (value === "uia" && state.fieldAccessMode !== "uia") {
+    helperSetStatus("UIA-Feldzugriff ist in dieser Produktionsversion deaktiviert. Zwischenablage verwenden.", "Zwischenablage empfohlen");
   }
 }
 
@@ -2255,6 +2324,11 @@ async function resetFieldMapperConfig() {
 }
 
 async function autoSelectMappedField({ reportOverride = null } = {}) {
+  if (!state.experimentalUia || fieldAccessMode() !== "uia") {
+    text("fieldMapperTargetStatus", "UIA-Auto-Ziel ist in dieser Produktionsversion deaktiviert. Drag-and-drop und Zwischenablage bleiben verfügbar.");
+    helperSetStatus("Keine UIA-Feldsuche gestartet. DMO/RIS-Text bitte kopieren oder per Drag-and-drop übernehmen.", "Zwischenablage empfohlen");
+    return null;
+  }
   if (state.fieldMapperAutoSelecting) return null;
   state.fieldMapperAutoSelecting = true;
   try {
@@ -2319,8 +2393,8 @@ async function autoSelectMappedField({ reportOverride = null } = {}) {
 
 async function scanFieldMapper({ readValues = true, autoSelect = false } = {}) {
   if (state.fieldMapperBusy) return;
-  if (fieldAccessMode() === "clipboard") {
-    const message = "Zwischenablage-Modus aktiv. Keine UIA-Diagnose gestartet. Für die optionale Feldsuche zuerst „UIA-Feldzugriff · testen“ wählen.";
+  if (!state.experimentalUia || fieldAccessMode() !== "uia") {
+    const message = "Zwischenablage-Modus aktiv. Keine UIA-Diagnose gestartet. DMO/RIS-Text markieren, Strg+C drücken und ausdrücklich übernehmen.";
     text("fieldMapperStatus", message);
     helperSetStatus(message, "Zwischenablage empfohlen");
     return null;
@@ -3098,6 +3172,13 @@ on("saveFieldMapper", "click", () => { void saveFieldMapperConfig(); });
 on("resetFieldMapper", "click", () => { void resetFieldMapperConfig(); });
 on("copyFieldMapper", "click", () => { void copyFieldMapperReport(); });
 on("fieldMapperAutoTarget", "change", (event) => {
+  if (!state.experimentalUia) {
+    event.target.checked = false;
+    state.fieldMapperAutoTarget = false;
+    saveFieldMapperPreferences();
+    helperSetStatus("UIA-Auto-Ziel ist in dieser Produktionsversion deaktiviert. Zwischenablage verwenden.", "Zwischenablage empfohlen");
+    return;
+  }
   state.fieldMapperAutoTarget = Boolean(event.target.checked);
   saveFieldMapperPreferences();
   if (state.fieldMapperAutoTarget && state.fieldMapReport?.fields?.length) void autoSelectMappedField({ reportOverride: state.fieldMapReport });
@@ -3176,7 +3257,7 @@ window.radimoAgent.onEvent((event) => {
   }
   if (event.method === "radimoagent/stderr") helperSetStatus(event.params?.text || "Lokales Signal.", "Hinweis");
 });
-window.radimoAgent.onReady((payload) => { applyBackendUi(payload || {}); void refreshConnection(); void loadModels(); void loadClinicSources(); void loadWritingResources(); });
+window.radimoAgent.onReady((payload) => { applyFieldAccessCapabilities(payload || {}); applyBackendUi(payload || {}); void refreshConnection(); void loadModels(); void loadClinicSources(); void loadWritingResources(); });
 window.radimoAgent.onError((error) => helperSetStatus(error.message || "Lokaler Agent nicht verfügbar.", "Nicht verfügbar"));
 window.radimoAgent.onWorkflowState((workflow) => {
   if (!workflow) return;

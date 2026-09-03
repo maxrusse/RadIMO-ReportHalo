@@ -2,6 +2,7 @@ const path = require("node:path");
 const fs = require("node:fs/promises");
 const { app, BrowserWindow, clipboard, dialog } = require("electron");
 const { scanFieldWindow } = require("./windows-field-bridge");
+const { blockedFieldAccessResult, experimentalUiaEnabled } = require("./field-access-policy");
 const {
   buildFieldMapReport,
   loadFieldMapperProfile,
@@ -51,6 +52,7 @@ function send(channel, payload) {
 }
 
 async function runScan({ readValues = false, windowHandle = "" } = {}) {
+  if (!experimentalUiaEnabled()) return blockedFieldAccessResult({ operation: "field-scan" });
   const profile = await ensureProfile();
   const requestedWindow = windowHandle === null ? "" : String(windowHandle || lastTargetWindowHandle || "");
   const releaseMapper = !requestedWindow && mapperWindow && !mapperWindow.isDestroyed() && mapperWindow.isVisible();

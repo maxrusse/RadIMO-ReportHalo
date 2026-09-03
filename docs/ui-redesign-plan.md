@@ -34,11 +34,11 @@ The compact base is 180 × 190 px, with a 140 × 140 px 3×3 board. Right-clicki
 
 ## Active Arbeitsfläche auswählen
 
-The top-left 3×3 target cell is both the compact status surface and a text drop target. In the default clipboard mode it opens the explicit DMO/RIS copy workflow; in UIA mode it can activate the focused or cursor-point field without taking focus from it. Its X clears the target or local source. The target cell's right-click menu reads marked text only when selection capture is requested. Dropped text becomes a local source and never silently becomes a foreign-app write target.
+The top-left 3×3 target cell is both the compact status surface and a text drop target. In the default clipboard mode it opens the explicit DMO/RIS copy workflow; only the developer-enabled experimental UIA mode can activate the focused or cursor-point field without taking focus from it. Its X clears the target or local source. The target cell's right-click menu reads marked text only when selection capture is requested. Dropped text becomes a local source and never silently becomes a foreign-app write target.
 
 The main-process bridge uses this order:
 
-1. Explicit clipboard import as the default DMO/RIS path; opt-in Windows UI Automation `FocusedElement` or cursor-point lookup with a short retry for a control that disappears during a redraw.
+1. Explicit clipboard import as the default DMO/RIS path; a developer-only Windows UI Automation `FocusedElement` or cursor-point lookup with a short retry for a control that disappears during a redraw.
 2. The focused element's stable identity (`ProcessId`, `AutomationId`, control type, runtime ID, and name), plus its top-level native window resolved from `NativeWindowHandle` with the foreground window as fallback.
 3. `ValuePattern` for a complete readable field.
 4. `TextPattern.GetSelection()` for an explicit selection, or `TextPattern.DocumentRange` for the complete text.
@@ -69,4 +69,4 @@ The 0.2.10 pass removes the desktop shell, desktop-only target/composer/canvas c
 
 ## References
 
-The opt-in active-field pattern follows Microsoft's UI Automation guidance for retrieving the focused element and using control patterns, especially `FocusedElement`, `TextPattern.GetSelection()`, and `ValuePattern`. The default DMO/RIS text path is explicit clipboard import. Native movement follows Electron's frameless `app-region: drag`, `setSize`, and `setFocusable` model. General visual spacing continues to follow Fluent 2 and WCAG 2.1 AA.
+The experimental active-field pattern follows Microsoft's UI Automation guidance for retrieving the focused element and using control patterns, especially `FocusedElement`, `TextPattern.GetSelection()`, and `ValuePattern`. The default DMO/RIS text path is explicit clipboard import. Native movement follows Electron's frameless `app-region: drag`, `setSize`, and `setFocusable` model. General visual spacing continues to follow Fluent 2 and WCAG 2.1 AA.
