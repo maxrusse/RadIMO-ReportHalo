@@ -1,6 +1,6 @@
 {
   "name": "radimo-reporthalo-desktop",
-  "version": "0.2.16",
+  "version": "0.2.17",
   "private": true,
   "description": "RadIMO - ReportHalo desktop client for transparent medical report quality review",
   "homepage": "https://maxrusse.github.io/RadIMO-ReportHalo/",
@@ -42,6 +42,13 @@
     ],
     "files": [
       "src/**/*",
+      "!src/windows-field-bridge.js",
+      "!src/windows-safe-field-bridge.js",
+      "!src/field-mapper-main.js",
+      "!src/field-mapper-preload.js",
+      "!src/field-mapper.html",
+      "!src/field-mapper.js",
+      "!src/field-mapper.css",
       "assets/**/*",
       "package.json",
       "codex-runtime.json",

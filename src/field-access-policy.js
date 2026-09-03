@@ -14,4 +14,15 @@ function blockedFieldAccessResult({ operation = "field-access", clipboard = fals
   };
 }
 
-module.exports = { EXPERIMENTAL_UIA_ENV, blockedFieldAccessResult, experimentalUiaEnabled };
+function unavailableFieldAccessResult({ operation = "field-access" } = {}) {
+  return {
+    ok: false,
+    verified: false,
+    error: "experimental-uia-bridge-unavailable",
+    accessibility: "uia-unavailable",
+    strategy: "experimental-uia-missing",
+    operation,
+  };
+}
+
+module.exports = { EXPERIMENTAL_UIA_ENV, blockedFieldAccessResult, experimentalUiaEnabled, unavailableFieldAccessResult };

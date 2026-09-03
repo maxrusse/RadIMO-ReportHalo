@@ -11,7 +11,7 @@ const { normalizeEndpoint } = require("../src/agent-api-config");
 const { MAX_TRANSCRIPTION_PROMPT_CHARS, TRANSCRIPTION_PROMPT, normalizeTranscriptionPrompt } = require("../src/openai-audio");
 const { estimateCostEur, UsageBudget } = require("../src/usage-budget");
 const { normalizedProxyUrl, parseProxyInput, proxyEndpointFromRules } = require("../src/windows-proxy");
-const { blockedFieldAccessResult, experimentalUiaEnabled } = require("../src/field-access-policy");
+const { blockedFieldAccessResult, experimentalUiaEnabled, unavailableFieldAccessResult } = require("../src/field-access-policy");
 const {
   buildFieldMapReport,
   defaultFieldMapperProfile,
@@ -135,6 +135,14 @@ test("UIA field access is opt-in per process and clipboard mode has an explicit 
     accessibility: "clipboard",
     strategy: "clipboard-only",
   });
+  assert.deepEqual(unavailableFieldAccessResult({ operation: "field-scan" }), {
+    ok: false,
+    verified: false,
+    error: "experimental-uia-bridge-unavailable",
+    accessibility: "uia-unavailable",
+    strategy: "experimental-uia-missing",
+    operation: "field-scan",
+  });
 });
 
 test("GitHub Pages product page is self-contained and brand-aligned", async () => {
@@ -200,8 +208,8 @@ test("function prompts are user-editable and preserve reusable chat text", async
   assert.match(app, /Diktat kopiert\. Im RIS\/DMO am Cursor mit Strg\+V einfügen/);
   assert.match(app, /Vollständiger Ergebnistext kopiert\. Im RIS\/DMO prüfen und mit Strg\+V einfügen/);
   assert.match(app, /clipboardPrepared/);
-  assert.match(app, /genau einen vollständigen Writing Block/);
-  assert.match(medicalGate, /entire supplied text as exactly one complete Writing Block/);
+  assert.match(app, /vollständigen korrigierten Textblock/);
+  assert.match(medicalGate, /every paragraph, heading, and unchanged passage/);
   assert.match(app, /reviewMode: "text"/);
   assert.match(renderer, /Vollständiger Funktionsprompt/);
   assert.match(renderer, /id="miniConfigPrompt"[^>]*maxlength="8000"/);
@@ -261,12 +269,17 @@ test("field mapper is available in the integrated and standalone Windows builds"
   const styles = await fs.readFile(path.join(__dirname, "..", "src", "renderer", "styles.css"), "utf8");
   const standalone = await fs.readFile(path.join(__dirname, "..", "src", "field-mapper-main.js"), "utf8");
   const config = await fs.readFile(path.join(__dirname, "..", "scripts", "win-field-mapper-config.json"), "utf8");
+  const buildConfig = await fs.readFile(path.join(__dirname, "..", "package.json"), "utf8");
+  const apiConfig = await fs.readFile(path.join(__dirname, "..", "scripts", "win-api-config.json"), "utf8");
+  const installerConfig = await fs.readFile(path.join(__dirname, "..", "scripts", "win-installer-config.json"), "utf8");
   assert.match(packageJsonText, /dist:field-mapper/);
   assert.match(main, /field-mapper:set-config/);
   assert.match(main, /field:focus-mapped/);
   assert.match(preload, /focusMappedField/);
   assert.match(preload, /readClipboard/);
   assert.match(main, /field:scan-window/);
+  assert.match(main, /loadExperimentalWindowsFieldBridge/);
+  assert.doesNotMatch(main, /require\("\.\/windows-field-bridge"\)/);
   assert.match(main, /Focused field capture blocked by policy/);
   assert.match(main, /Focused field write blocked by policy/);
   assert.match(main, /const accessMode = payload\?\.accessMode \|\| payload\?\.target\?\.accessMode/);
@@ -315,8 +328,14 @@ test("field mapper is available in the integrated and standalone Windows builds"
   assert.match(standalone, /helperProcessId: process\.pid/);
   assert.doesNotMatch(standalone, /globalShortcut/);
   assert.match(config, /field-mapper-main\.js/);
+  assert.match(config, /field-access-policy\.js/);
   assert.match(config, /windows-safe-field-bridge\.js/);
   assert.doesNotMatch(config, /codex|agent-backend|openai/i);
+  for (const productionConfig of [buildConfig, apiConfig, installerConfig]) {
+    assert.match(productionConfig, /!src\/windows-field-bridge\.js/);
+    assert.match(productionConfig, /!src\/windows-safe-field-bridge\.js/);
+    assert.match(productionConfig, /!src\/field-mapper-main\.js/);
+  }
 });
 
 test("GitHub Pages deployment uses the docs site without a build-time dependency", async () => {

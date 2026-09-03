@@ -7,8 +7,7 @@ const { findAdjacentContext, formatContextReport } = require("./context-finder")
 const fs = require("node:fs/promises");
 const crypto = require("node:crypto");
 const { configure, getLogPath, log, readLog } = require("./logger");
-const { focusMappedField, readFocusedField, scanFieldWindow: scanRawFieldWindow, writeFocusedField } = require("./windows-field-bridge");
-const { blockedFieldAccessResult, experimentalUiaEnabled } = require("./field-access-policy");
+const { blockedFieldAccessResult, experimentalUiaEnabled, unavailableFieldAccessResult } = require("./field-access-policy");
 const {
   buildFieldMapReport,
   loadFieldMapperProfile,
@@ -115,6 +114,22 @@ let helperPanelVertical = "bottom";
 let helperPanelRequestEpoch = "";
 let latestHelperPanelRequest = 0;
 let quitting = false;
+let experimentalWindowsFieldBridge = null;
+
+function loadExperimentalWindowsFieldBridge(operation) {
+  if (!experimentalUiaEnabled()) return null;
+  if (experimentalWindowsFieldBridge) return experimentalWindowsFieldBridge;
+  try {
+    // Keep the UIA/PowerShell diagnostic bridge out of the normal startup
+    // dependency graph. It is packaged only with the separate diagnostic
+    // build and loaded only for an explicitly opted-in developer session.
+    experimentalWindowsFieldBridge = require(path.join(__dirname, "windows-field-bridge.js"));
+    return experimentalWindowsFieldBridge;
+  } catch (error) {
+    log("WARN", "Experimental UIA bridge unavailable", { operation, message: error?.message || String(error) });
+    return null;
+  }
+}
 
 function openAICredentialPath() {
   return path.join(app.getPath("userData"), "secrets", "openai-api-key.bin");
@@ -1186,11 +1201,18 @@ registerIpcHandler("field:read-focused", async (_event, options) => {
     log("WARN", "Focused field capture blocked by policy", { error: result.error });
     return result;
   }
-  if (accessMode === "uia" && !experimentalUiaEnabled()) {
+  if (accessMode === "clipboard") {
+    const result = blockedFieldAccessResult({ operation: "field-read", clipboard: true });
+    log("INFO", "Focused field capture left to clipboard workflow", { error: result.error });
+    return result;
+  }
+  if (!experimentalUiaEnabled()) {
     const result = blockedFieldAccessResult({ operation: "field-read" });
     log("WARN", "Focused field capture blocked by policy", { error: result.error });
     return result;
   }
+  const fieldBridge = loadExperimentalWindowsFieldBridge("field-read");
+  if (!fieldBridge?.readFocusedField) return unavailableFieldAccessResult({ operation: "field-read" });
   const hasPoint = request.pointX !== "" && request.pointY !== "" && Number.isFinite(Number(request.pointX)) && Number.isFinite(Number(request.pointY));
   const releaseHelper = request.accessMode !== "clipboard" && !request.windowHandle && !hasPoint;
   let pointScale = "";
@@ -1198,7 +1220,7 @@ registerIpcHandler("field:read-focused", async (_event, options) => {
     try { pointScale = screen.getDisplayNearestPoint({ x: Number(request.pointX), y: Number(request.pointY) }).scaleFactor || ""; } catch { /* display lookup is optional */ }
   }
   const run = releaseHelper ? withHelperTemporarilyHidden : async (task) => task();
-  const result = await run(() => readFocusedField({ ...request, pointScale, helperWindowHandle: helperNativeWindowHandle(), helperProcessId: process.pid }));
+  const result = await run(() => fieldBridge.readFocusedField({ ...request, pointScale, helperWindowHandle: helperNativeWindowHandle(), helperProcessId: process.pid }));
   log(result?.ok ? "INFO" : "WARN", "Focused field capture", {
     ok: Boolean(result?.ok),
     strategy: result?.strategy || null,
@@ -1214,12 +1236,19 @@ registerIpcHandler("field:focus-mapped", async (_event, payload) => {
     log("WARN", "Mapped field focus blocked by policy", { error: result.error });
     return result;
   }
-  if (accessMode === "uia" && !experimentalUiaEnabled()) {
+  if (accessMode === "clipboard") {
+    const result = blockedFieldAccessResult({ operation: "field-focus", clipboard: true });
+    log("INFO", "Mapped field focus left to clipboard workflow", { error: result.error });
+    return result;
+  }
+  if (!experimentalUiaEnabled()) {
     const result = blockedFieldAccessResult({ operation: "field-focus" });
     log("WARN", "Mapped field focus blocked by policy", { error: result.error });
     return result;
   }
-  const result = await focusMappedField({
+  const fieldBridge = loadExperimentalWindowsFieldBridge("field-focus");
+  if (!fieldBridge?.focusMappedField) return unavailableFieldAccessResult({ operation: "field-focus" });
+  const result = await fieldBridge.focusMappedField({
     windowHandle: payload?.windowHandle,
     target: payload?.target,
     helperWindowHandle: helperNativeWindowHandle(),
@@ -1235,15 +1264,22 @@ registerIpcHandler("field:focus-mapped", async (_event, payload) => {
 registerIpcHandler("field:write-focused", async (_event, payload) => {
   if (!payload || typeof payload.text !== "string") return { ok: false, verified: false, error: "empty-text" };
   const accessMode = payload.accessMode || payload.target?.accessMode;
+  if (accessMode === "clipboard") {
+    const result = blockedFieldAccessResult({ operation: "field-write", clipboard: true });
+    log("INFO", "Focused field write left to clipboard workflow", { error: result.error });
+    return result;
+  }
   if (accessMode !== "uia" || !experimentalUiaEnabled()) {
     const result = blockedFieldAccessResult({ operation: "field-write" });
     log("WARN", "Focused field write blocked by policy", { error: result.error });
     return result;
   }
+  const fieldBridge = loadExperimentalWindowsFieldBridge("field-write");
+  if (!fieldBridge?.writeFocusedField) return unavailableFieldAccessResult({ operation: "field-write" });
   const previousClipboard = snapshotClipboard(clipboard);
   clipboard.writeText(payload.text);
   try {
-    const result = await writeFocusedField(payload);
+    const result = await fieldBridge.writeFocusedField(payload);
     log(result?.ok ? "INFO" : "WARN", "Focused field write", {
       ok: Boolean(result?.ok),
       verified: Boolean(result?.verified),
@@ -1279,12 +1315,14 @@ registerIpcHandler("field:scan-window", async (_event, payload) => {
     log("WARN", "Field mapper scan blocked by policy", { error: result.error });
     return result;
   }
+  const fieldBridge = loadExperimentalWindowsFieldBridge("field-scan");
+  if (!fieldBridge?.scanFieldWindow) return unavailableFieldAccessResult({ operation: "field-scan" });
   const profile = await ensureFieldMapperProfile();
   const readValues = payload?.readValues !== false;
   const requestedWindow = request.windowHandle || request.target?.windowHandle || "";
   const releaseHelper = request.accessMode !== "clipboard" && !requestedWindow;
   const run = releaseHelper ? withHelperTemporarilyHidden : async (task) => task();
-  const raw = await run(() => scanRawFieldWindow({
+  const raw = await run(() => fieldBridge.scanFieldWindow({
     windowHandle: request.windowHandle,
     target: request.target,
     helperWindowHandle: helperNativeWindowHandle(),

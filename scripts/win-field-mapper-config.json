@@ -11,6 +11,7 @@
     "src/field-mapper.html",
     "src/field-mapper.js",
     "src/field-mapper.css",
+    "src/field-access-policy.js",
     "src/windows-field-bridge.js",
     "src/windows-safe-field-bridge.js",
     "src/windows-field-mapper.js",

@@ -111,7 +111,7 @@ const FIELD_MAPPER_DEFAULT_EXCLUDE = [
 ].join("\n");
 const ACTION_PROMPT_DEFAULTS = {
   write: `Formuliere nur den vorhandenen Text klarer. Keine neuen Informationen und keine inhaltlichen Ergänzungen. Gib in text den vollständigen Textblock zurück; er ist für die Ersetzung des aktiven Feldes bestimmt.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
-  correction: `Medizinisches Lektorat. Korrigiere und ersetze ausschließlich relevante Rechtschreib-, Grammatik-, Interpunktions- und erkennbare Diktatfehler im vorhandenen Text. Überschriften und OPB, sofern vorhanden, unverändert belassen. Keine neuen Inhalte, keine stilistische Umdeutung und keine Bedeutungsänderung. Medizinische oder logische Auffälligkeiten ausschließlich unter dem Text als Hinweise nennen; nicht korrigieren. Gib in text genau einen vollständigen Writing Block mit dem kompletten korrigierten Text ohne Zusatzformatierung zurück, nie nur einzelne Ausschnitte. Wenn keine Korrektur nötig ist, gib den vollständigen Originaltext unverändert zurück und setze changes auf []. Liste danach nur die tatsächlich vorgenommenen Änderungen auf.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
+  correction: `Medizinisches Lektorat. Korrigiere und ersetze ausschließlich relevante Rechtschreib-, Grammatik-, Interpunktions- und erkennbare Diktatfehler im vorhandenen Text. Überschriften und OPB, sofern vorhanden, unverändert belassen. Keine neuen Inhalte, keine stilistische Umdeutung und keine Bedeutungsänderung. Medizinische oder logische Auffälligkeiten ausschließlich unter dem Text als Hinweise nennen; nicht korrigieren. Gib in text ausschließlich den vollständigen korrigierten Textblock zurück: jeden Absatz, jede Überschrift und alle unveränderten Stellen mit ausgeben, niemals nur Änderungen, Ausschnitte, eine Zusammenfassung oder Auslassungspunkte. Wenn keine Korrektur nötig ist, gib den vollständigen Originaltext unverändert zurück und setze changes auf []. Keine Zusatzformatierung und keine Hinweise innerhalb von text; Änderungen und Hinweise stehen nur in den Metadaten.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
   structure: `Ordne nur den vorhandenen Text besser. Nichts ergänzen und keine fehlenden Bausteine erfinden. Gib in text den vollständigen neu geordneten Textblock zurück; er ist für die Ersetzung des aktiven Feldes bestimmt.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
   assessment: `Fasse nur die vorhandenen Aussagen knapp als Beurteilung. Unsicherheiten und Lücken bleiben sichtbar. Gib in text nur den ergänzenden Inhalt ohne Überschrift zurück; ReportHalo setzt beim Übernehmen die klare Kennzeichnung "Beurteilung: " davor und hängt ihn unterhalb des vorhandenen Textes an.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
   discussion: `Chat: Antworte knapp in 1–4 kurzen Absätzen oder höchstens fünf Stichpunkten. Erkläre, frage nach und diskutiere nur anhand des vorhandenen Textes. Du schreibst nie in ein externes Feld. Wenn der Nutzer ausdrücklich einen korrigierten, umformulierten oder wiederverwendbaren Text verlangt, gib ein JSON-Objekt mit answer, text, changes, unclear, logicIssues und medicalIssues zurück; text ist dann der vollständige Textblock zur späteren Übernahme. Bei reiner Diskussion antworte als normalen kurzen Text.\n\nARBEITSTEXT:\n${TEXT_BLOCK_TOKEN}`,
@@ -126,8 +126,8 @@ const ACTION_SETTING_DEFAULTS = Object.fromEntries(Object.keys(ACTION_PROMPT_DEF
 
 const FIELD_ACCESS_MODES = {
   clipboard: {
-    label: "Zwischenablage · empfohlen",
-    description: "Kein Fremdfenster-Zugriff. Im RIS/DMO markieren, Strg+C drücken und den Text hier ausdrücklich übernehmen.",
+    label: "Zwischenablage · DMO/RIS",
+    description: "Im DMO/RIS Text markieren, Strg+C drücken und anschließend hier übernehmen. Ergebnisse werden kopiert und im Zielprogramm bewusst mit Strg+V eingefügt.",
   },
   uia: {
     label: "UIA-Feldzugriff · experimentell",
@@ -436,11 +436,13 @@ function showMiniContextMenu(event, targetId = "miniCore") {
   const run = $("miniContextRun");
   if (run) {
     run.classList.toggle("hidden", !definition.run);
-    run.textContent = definition.task ? "Ausführen" : definition.label + " öffnen";
+    run.textContent = targetId === "miniTargetCell" && !usesExperimentalFieldAccess()
+      ? "Zwischenablage übernehmen"
+      : definition.task ? "Ausführen" : definition.label + " öffnen";
   }
   const targetMenu = targetId === "miniTargetCell";
   const selection = $("miniContextSelection");
-  if (selection) selection.classList.toggle("hidden", !targetMenu);
+  if (selection) selection.classList.toggle("hidden", !targetMenu || !usesExperimentalFieldAccess());
   const copy = $("miniContextCopy");
   if (copy) copy.classList.toggle("hidden", !targetMenu || !Boolean(currentHelperText() || reviewText()));
   const clipboard = $("miniContextClipboard");
@@ -453,7 +455,7 @@ function showMiniContextMenu(event, targetId = "miniCore") {
   }
   const autoSelect = $("miniContextAutoSelect");
   if (autoSelect) {
-    autoSelect.classList.toggle("hidden", !targetMenu || !state.experimentalUia);
+    autoSelect.classList.toggle("hidden", !targetMenu || !usesExperimentalFieldAccess());
     autoSelect.textContent = `${fieldMapperTargetLabel()} automatisch wählen`;
     autoSelect.title = "Eine eindeutig passende, konfigurierte Textfeldregel als Ziel verwenden";
   }
@@ -474,7 +476,7 @@ function showMiniContextMenu(event, targetId = "miniCore") {
   const cubeSize = $("miniContextCubeSize");
   if (cubeSize) cubeSize.classList.toggle("hidden", definition.kind !== "core");
   const fieldMapper = $("miniContextFieldMapper");
-  if (fieldMapper) fieldMapper.classList.toggle("hidden", !state.experimentalUia);
+  if (fieldMapper) fieldMapper.classList.toggle("hidden", !usesExperimentalFieldAccess());
   syncCubeModeControl();
   menu.classList.remove("hidden");
   const core = $("miniCore");
@@ -570,6 +572,35 @@ function fieldAccessMode() {
 
 function fieldAccessDescription(mode = fieldAccessMode()) {
   return FIELD_ACCESS_MODES[normalizeFieldAccessMode(mode)]?.description || FIELD_ACCESS_MODES.clipboard.description;
+}
+
+function usesExperimentalFieldAccess() {
+  return state.experimentalUia && fieldAccessMode() === "uia";
+}
+
+function fieldCaptureLabel() {
+  return usesExperimentalFieldAccess() ? "Externes Arbeitsfeld aktivieren" : "Text aus der Zwischenablage übernehmen";
+}
+
+function updateFieldAccessUi() {
+  const fieldButton = $("miniCaptureFromField");
+  if (fieldButton) {
+    fieldButton.classList.toggle("hidden", !state.experimentalUia);
+    fieldButton.disabled = !state.experimentalUia;
+    fieldButton.textContent = "UIA-Feld aktivieren";
+    fieldButton.title = "Nur im ausdrücklich gestarteten UIA-Entwicklertest verwenden";
+  }
+  document.querySelector(".field-mapper-details")?.classList.toggle("hidden", !state.experimentalUia);
+  const workflowNote = $("fieldAccessWorkflowNote");
+  if (workflowNote) workflowNote.textContent = usesExperimentalFieldAccess()
+    ? "UIA ist nur für einen ausdrücklich gestarteten Entwicklertest aktiv. DMO-/RIS-Felder können trotz funktionierendem Diktat keinen lesbaren UIA-Text bereitstellen."
+    : "Der sichere Standardweg startet keine Fremdfenster-Automation. DMO-Diktat- und unbekannte Felder bleiben im DMO-Workflow; ReportHalo übernimmt Text ausdrücklich aus der Zwischenablage.";
+  const clipboardButton = $("miniClipboardCapture");
+  if (clipboardButton) {
+    clipboardButton.textContent = "Zwischenablage übernehmen";
+    clipboardButton.title = "Markierten DMO-/RIS-Text aus der Zwischenablage übernehmen";
+  }
+  renderMiniTarget();
 }
 
 function releaseUiaTargetForClipboard() {
@@ -830,15 +861,16 @@ function renderMiniTarget() {
   cell.classList.toggle("is-auto-target", hasTarget && Boolean(state.focusedTarget?.fieldMapperKey));
   cell.classList.toggle("has-text", !hasTarget && hasText);
   cell.classList.toggle("is-empty", !hasTarget && !hasText);
-  cell.setAttribute("aria-label", hasTarget ? `Externes Feld aktiv: ${helperFieldLabel()}` : hasText ? "Textquelle bereit" : "Arbeitsfeld oder Textquelle");
-  cell.title = hasTarget ? `${state.focusedTarget?.fieldMapperLabel ? `${state.focusedTarget.fieldMapperLabel} · ` : ""}Externes Feld aktiv · Rechtsklick für Auto-Ziel · X löst das Zielfeld` : hasText ? "Textquelle bereit · X leert den Text" : "Externes Arbeitsfeld aktivieren oder Text hierher ziehen · Rechtsklick für Auto-Ziel";
+  const uia = usesExperimentalFieldAccess();
+  cell.setAttribute("aria-label", hasTarget ? `Externes Feld aktiv: ${helperFieldLabel()}` : hasText ? "Textquelle bereit" : uia ? "Externes Arbeitsfeld oder Textquelle" : "Textquelle aus Zwischenablage oder Drag-and-drop");
+  cell.title = hasTarget ? `${state.focusedTarget?.fieldMapperLabel ? `${state.focusedTarget.fieldMapperLabel} · ` : ""}Externes Feld aktiv · Rechtsklick für Auto-Ziel · X löst das Zielfeld` : hasText ? "Textquelle bereit · X leert den Text" : uia ? "Externes Arbeitsfeld aktivieren oder Text hierher ziehen · Rechtsklick für Auto-Ziel" : "Text aus der Zwischenablage übernehmen oder hierher ziehen";
   const targetIcon = $("miniTargetIcon");
   if (targetIcon) targetIcon.setAttribute("href", hasTarget ? "#icon-lock" : hasText ? "#icon-edit" : "#icon-target");
   const capture = $("miniCapture");
   capture?.classList.toggle("is-active", hasTarget);
-  capture?.setAttribute("aria-label", hasTarget ? `Arbeitsfeld erneut lesen: ${helperFieldLabel()}` : hasText ? "Textquelle durch externes Arbeitsfeld ersetzen" : "Externes Arbeitsfeld aktivieren");
-  capture?.setAttribute("title", hasTarget ? "Arbeitsfeld erneut lesen" : hasText ? "Externes Arbeitsfeld aktivieren" : "Externes Arbeitsfeld aktivieren");
-  text("miniTargetCellStatus", hasTarget ? `Externes Feld aktiv: ${helperFieldLabel()}` : hasText ? "Textquelle bereit" : "Feld wählen");
+  capture?.setAttribute("aria-label", hasTarget ? `Arbeitsfeld erneut lesen: ${helperFieldLabel()}` : hasText ? uia ? "Textquelle durch externes Arbeitsfeld ersetzen" : "Zwischenablage erneut übernehmen" : fieldCaptureLabel());
+  capture?.setAttribute("title", hasTarget ? "Arbeitsfeld erneut lesen" : hasText ? uia ? "Externes Arbeitsfeld aktivieren" : "Zwischenablage erneut übernehmen" : fieldCaptureLabel());
+  text("miniTargetCellStatus", hasTarget ? `Externes Feld aktiv: ${helperFieldLabel()}` : hasText ? "Textquelle bereit" : uia ? "Feld wählen" : "Zwischenablage übernehmen");
   const clear = $("miniTargetClear");
   if (clear) clear.disabled = !hasTarget && !hasText;
   if (clear) clear.title = hasTarget ? "Arbeitsfeld lösen" : "Textquelle leeren";
@@ -967,14 +999,9 @@ async function captureWorkingField({ selectionOnly = false, point = null } = {})
     return null;
   }
   if (fieldAccessMode() === "clipboard") {
-    helperSetStatus(
-      selectionOnly
-        ? "DMO/RIS sicher übernehmen: Text markieren, Strg+C drücken und danach „Zwischenablage übernehmen“ wählen."
-        : "DMO/RIS-Felder sind nicht zuverlässig auslesbar. Text im Feld markieren, Strg+C drücken und danach „Zwischenablage übernehmen“ wählen.",
-      "Zwischenablage empfohlen",
-    );
-    openPanel("contextDrawer");
-    return null;
+    const value = await captureClipboardSource();
+    if (!value) openPanel("contextDrawer");
+    return value;
   }
   await window.radimoAgent.setHelperFocusable(false);
   try {
@@ -1015,6 +1042,34 @@ async function miniCaptureSelection({ point = null } = {}) {
   return captureWorkingField({ selectionOnly: true, point });
 }
 
+function adoptTextSource(value) {
+  state.focusedTarget = null;
+  state.fieldLocked = false;
+  state.helperSourceText = String(value || "").trim();
+  state.pendingDictationText = "";
+  state.pendingDictationTarget = null;
+  state.transferNeedsReview = null;
+  state.lastSourceText = "";
+  state.lastAgentText = "";
+  state.lastAgentResult = "";
+  state.lastResultInsertText = "";
+  state.lastResultTask = "";
+  state.lastResultTarget = null;
+  state.lastChatResultTarget = null;
+  state.lastResultApplied = false;
+  state.manualReviewPending = false;
+  state.lastAgentMeta = emptyAgentMeta();
+  state.editorMode = "source";
+  const review = $("miniReviewText");
+  if (review) review.value = "";
+  renderReviewDiff("", "");
+  renderAgentNotes(state.lastAgentMeta);
+  renderFieldMapperReport(null);
+  void window.radimoAgent.patchWorkflow({ phase: "idle", target: "text", targetIdentity: null });
+  syncDiscussionScope();
+  renderMiniTarget();
+}
+
 async function captureClipboardSource() {
   if (state.working || state.transferInFlight) {
     helperSetStatus("Die laufende Aktion zuerst abwarten.", "Bitte warten");
@@ -1026,16 +1081,7 @@ async function captureClipboardSource() {
       helperSetStatus("Die Zwischenablage enthält keinen Text. Im DMO/RIS markieren und Strg+C drücken.", "Kein Text");
       return null;
     }
-    state.focusedTarget = null;
-    state.fieldLocked = false;
-    state.helperSourceText = value;
-    state.pendingDictationText = "";
-    state.pendingDictationTarget = null;
-    state.transferNeedsReview = null;
-    state.lastResultApplied = false;
-    renderFieldMapperReport(null);
-    void window.radimoAgent.patchWorkflow({ phase: "idle", target: "text", targetIdentity: null });
-    syncDiscussionScope();
+    adoptTextSource(value);
     helperSetStatus(`${value.length} Zeichen aus der Zwischenablage übernommen.`, "Text bereit");
     return value;
   } catch (error) {
@@ -1056,17 +1102,8 @@ function handleMiniTargetDrop(event) {
     helperSetStatus("Nur Text kann als Arbeitsgrundlage übernommen werden.", "Kein Text");
     return;
   }
-  state.focusedTarget = null;
-  state.fieldLocked = false;
-  state.helperSourceText = dropped;
-  state.pendingDictationText = "";
-  state.pendingDictationTarget = null;
-  state.transferNeedsReview = null;
-  state.lastResultApplied = false;
-  renderFieldMapperReport(null);
-  void window.radimoAgent.patchWorkflow({ phase: "idle", target: "text", targetIdentity: null });
-  syncDiscussionScope();
-  helperSetStatus(`${dropped.length} Zeichen als Textquelle übernommen. Für Einsetzen ein externes Arbeitsfeld aktivieren.`, "Text bereit");
+  adoptTextSource(dropped);
+  helperSetStatus(`${dropped.length} Zeichen als Textquelle übernommen. Ergebnisse werden kopiert und im RIS/DMO mit Strg+V eingefügt.`, "Text bereit");
 }
 
 async function ensureSource({ allowEmpty = false } = {}) {
@@ -1117,7 +1154,7 @@ function recentDiscussionContext() {
 
 const TEXT_ACTION_OUTPUT_CONTRACT = [
   "FELDAKTION: Gib ausschließlich das vollständige JSON-Ergebnis im vorgegebenen Schema zurück.",
-  "text ist bei Lektorat, Formulierung und Strukturierung genau ein vollständiger Writing Block und der vollständige Ersatztext für das lokale Textfeld. Bei Lektorat muss text den gesamten Ausgangstext enthalten, auch wenn nur ein Wort geändert wurde; bei keiner Änderung ist text eine unveränderte Kopie. Bei Beurteilung ist text ausschließlich der ergänzende Inhalt; die Oberfläche kennzeichnet ihn als Beurteilung und hängt ihn unterhalb an. Keine Markdown-Zäune, keine Einleitung und keine Änderungslisten innerhalb von text. changes nennt nur tatsächlich vorgenommene Sprach-, Rechtschreib-, Grammatik- oder Lektoratsänderungen; unclear, logicIssues und medicalIssues sind kurze Hinweise zum Ausgangstext und werden nicht geändert. Keine neuen medizinischen Fakten.",
+  "text ist bei Lektorat, Formulierung und Strukturierung ausschließlich der vollständige Textblock und der vollständige Ersatztext für das lokale Textfeld. Bei Lektorat muss text den gesamten Ausgangstext enthalten, mit jedem Absatz und jeder unveränderten Stelle, auch wenn nur ein Wort geändert wurde; niemals nur Ausschnitte, eine Zusammenfassung oder Auslassungspunkte. Bei keiner Änderung ist text eine unveränderte Kopie. Bei Beurteilung ist text ausschließlich der ergänzende Inhalt; die Oberfläche kennzeichnet ihn als Beurteilung und hängt ihn unterhalb an. Keine Markdown-Zäune, keine Einleitung und keine Änderungslisten innerhalb von text. changes nennt nur tatsächlich vorgenommene Sprach-, Rechtschreib-, Grammatik- oder Lektoratsänderungen; unclear, logicIssues und medicalIssues sind kurze Hinweise zum Ausgangstext und werden nicht geändert. Keine neuen medizinischen Fakten.",
 ].join(" ");
 
 const PROPOSAL_OUTPUT_CONTRACT = [
@@ -2140,15 +2177,16 @@ function applyFieldAccessCapabilities(payload = {}) {
     if (control) control.disabled = !enabled;
   }
   const fieldMapperMenu = $("miniContextFieldMapper");
-  if (fieldMapperMenu && !enabled) fieldMapperMenu.classList.add("hidden");
+  if (fieldMapperMenu) fieldMapperMenu.classList.toggle("hidden", !enabled);
   if (!enabled && previousMode === "uia") releaseUiaTargetForClipboard();
   state.fieldAccessMode = normalizeFieldAccessMode(state.fieldAccessMode);
   if (select) select.value = state.fieldAccessMode;
   text("fieldAccessStatus", enabled
     ? fieldAccessDescription()
-    : "Zwischenablage-Modus aktiv. UIA-Feldsuche ist in dieser Produktionsversion deaktiviert; sie startet keine Fremdfenster-Automation.");
-  if (!enabled) text("fieldMapperStatus", "UIA-Feldsuche ist in dieser Produktionsversion deaktiviert. DMO/RIS-Text bitte markieren, Strg+C drücken und ausdrücklich übernehmen.");
+    : "Zwischenablage-Modus aktiv. DMO/RIS-Text markieren, Strg+C drücken und ausdrücklich übernehmen; Ergebnisse werden bewusst zurückkopiert.");
+  if (!enabled) text("fieldMapperStatus", "UIA-Feldsuche ist im normalen ReportHalo-Build nicht enthalten. DMO/RIS-Text bitte markieren, Strg+C drücken und ausdrücklich übernehmen.");
   if (!enabled) text("fieldMapperTargetStatus", "Zwischenablage und Drag-and-drop bleiben verfügbar.");
+  updateFieldAccessUi();
 }
 
 function saveFieldAccessPreference(value) {
@@ -2159,11 +2197,12 @@ function saveFieldAccessPreference(value) {
   const select = $("fieldAccessMode");
   if (select) select.value = state.fieldAccessMode;
   text("fieldAccessStatus", fieldAccessDescription());
+  updateFieldAccessUi();
   if (state.fieldAccessMode === "clipboard" && previousMode !== "clipboard" && hasLockedTarget()) {
     releaseUiaTargetForClipboard();
-    helperSetStatus("UIA-Zielfeld gelöst. DMO/RIS-Text jetzt kopieren und ausdrücklich übernehmen.", "Zwischenablage empfohlen");
+    helperSetStatus("UIA-Zielfeld gelöst. DMO/RIS-Text jetzt kopieren und ausdrücklich übernehmen.", "Zwischenablage");
   } else if (value === "uia" && state.fieldAccessMode !== "uia") {
-    helperSetStatus("UIA-Feldzugriff ist in dieser Produktionsversion deaktiviert. Zwischenablage verwenden.", "Zwischenablage empfohlen");
+    helperSetStatus("UIA-Feldzugriff ist in diesem Build deaktiviert. Zwischenablage verwenden.", "Zwischenablage");
   }
 }
 
@@ -3103,7 +3142,15 @@ on("miniConfigReset", "click", resetMiniConfig);
 on("miniTargetClear", "click", (event) => { event.stopPropagation(); clearMiniTarget(); });
 on("miniCapture", "click", () => { void miniCaptureField(); });
 on("miniClipboardCapture", "click", () => { void captureClipboardSource(); });
-on("miniCaptureFromField", "click", () => { void miniCaptureField(); });
+on("miniCaptureFromField", "click", () => {
+  if (!state.experimentalUia) { void captureClipboardSource(); return; }
+  if (!usesExperimentalFieldAccess()) {
+    const select = $("fieldAccessMode");
+    if (select) select.value = "uia";
+    saveFieldAccessPreference("uia");
+  }
+  void miniCaptureField();
+});
 on("fieldAccessMode", "change", (event) => {
   saveFieldAccessPreference(event.target.value);
   helperSetStatus(fieldAccessDescription(), "Zugriff geändert");

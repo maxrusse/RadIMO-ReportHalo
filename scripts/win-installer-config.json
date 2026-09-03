@@ -6,6 +6,13 @@
   "electronLanguages": ["de", "en-US"],
   "files": [
     "src/**/*",
+    "!src/windows-field-bridge.js",
+    "!src/windows-safe-field-bridge.js",
+    "!src/field-mapper-main.js",
+    "!src/field-mapper-preload.js",
+    "!src/field-mapper.html",
+    "!src/field-mapper.js",
+    "!src/field-mapper.css",
     "assets/**/*",
     "package.json",
     "codex-runtime.json",
